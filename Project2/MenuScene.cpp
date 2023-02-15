@@ -3,10 +3,10 @@
 #include "MenuScene.h"
 
 //メニュー項目のシーン番号の配列
-#define MENU_MAX 1
-SCENE_NO menu[MENU_MAX] = { SCENE_GAME1 };
+#define MENU_MAX 2
+SCENE_NO menu[MENU_MAX] = { SCENE_GAME1, SCENE_GAME2 };
 //本来→SCENE_NO menu[MENU_MAX] = { SCENE_GAME1, SCENE_GAME2, SCENE_GAME3 };
-char* menuList[3] = { "ゲームスタート","","" };
+char* menuList[3] = { "ゲームスタート","ネットワークバトル","" };
 //選択されたゲームを表すメニュー番号の初期化（menuの添え字）
 static int selectedGame = 0;
 
