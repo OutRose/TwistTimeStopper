@@ -26,6 +26,16 @@
 #    define MyOutputDebugString( str, ... ) // 空実装
 #endif
 
+#define MENU_MAX_G 2
+SCENE_NO menu[MENU_MAX_G] = { SCENE_GAME1, SCENE_GAME2 };
+//本来→SCENE_NO menu[MENU_MAX] = { SCENE_GAME1, SCENE_GAME2, SCENE_GAME3 };
+char* menuList2[3] = { "挑む側","挑まれる側","" };
+//選択されたゲームを表すメニュー番号の初期化（menuの添え字）
+static int selectedGame2 = 0;
+
+int startfont2;
+
+
 //外部定義(GameMain.cppにて宣言)+変数シードに使ったミリ秒データ
 extern int Input, EdgeInput, rdSeed;
 
@@ -34,19 +44,27 @@ float RandomTgt2, CalFrame2;
 float RandomMtp2, CalMulti2;
 void targetTimeSet2();
 //ネットワーク対戦用の関数も追加する
-int netBattle(int score);
+int netBattle(float score);
 
 //計測用変数、記録用変数を宣言
 float FrameTmp2 = 0.0;
 float ScMulti2, Score2 = 0.0;
 
+//受信したスコアを格納する変数
+char rcScore[256];
+
 //状態遷移マネージメント変数
 //0=目標時間と倍速値セット前、1=目標時間と倍速値セット完了、スタート待ち
 //2=計測中、3=計測完了、スコア加算OK（ここまでは仮）
-int status2 = 0;
+//4=ネット対戦の送受信を選ばせる
+int status2 = 4;
 //ネットワーク対戦用のステータス変数
 //0=初期状態、1=接続待機モード、2=受信側モード？
 int netStatus = 0;
+//あなたは挑まれるのか、挑むのか（受信か、送信か）
+//0=挑む側(先に送信するクライアント)、1=挑まれる側（受信するサーバー）
+//2=未選択状態
+int sideSelect = 2;
 
 //色変数セット
 unsigned int ColorWhite2 = GetColor(255, 255, 255);
@@ -61,7 +79,16 @@ unsigned int ColorSkyLike2 = GetColor(0, 255, 255);
 BOOL initGame2Scene(void)
 {
 	//入るときは必ずリセット
-	status2 = 0;
+	status2 = 4;
+
+	//メニュー関係の初期化
+	SetFontSize(32);
+	ChangeFontType(DX_FONTTYPE_ANTIALIASING_EDGE_8X8);
+
+	selectedGame2 = 0;
+
+	return TRUE;
+
 	return TRUE;
 }
 
@@ -78,10 +105,10 @@ void targetTimeSet2()
 
 //ネットワーク対戦部分：TCPを応用した通信を行う
 //設定するポート番号は「3500」
-int netBattle(int score)
+int netBattle(float score)
 {
 	//ネットワーク処理中であるかを示す変数
-	//処理が完了したら0に変更する
+//処理が完了したら0に変更する
 	int cFunc = 1;
 
 	//ココから初期化処理
@@ -100,7 +127,7 @@ int netBattle(int score)
 	nRet = 1;
 	int nLen, cnt = 1;
 	char        szBuf[256];
-	char		rcScore[256];	//受け取ったスコアを格納する
+	//char		rcScore[256];	//受け取ったスコアを格納する
 	SOCKET      lisS, remS;
 	SOCKADDR_IN saSv;
 	//ソケット定義
@@ -120,32 +147,59 @@ int netBattle(int score)
 		closesocket(lisS);
 		return 0;
 	}
-
 	LPHOSTENT lpInAddr = gethostbyname(szBuf);
 
 	//デバッグ出力
 	MyOutputDebugString(_T("\nこのパソコンは\n、%s または %s です\n"),
 		szBuf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
 
-	//Connect要求が来るまで待機
-	nRet = listen(lisS, SOMAXCONN);
-	MyOutputDebugString("接続待機状態に入ります…");
-	//ココまで初期化処理
-
-	//初期化処理が終わるまで抜けてはいけません
-	while (cFunc == 1)
+	//これより、送受信どちらかを選んだかにより処理が変化する
+	switch (sideSelect)
 	{
-		switch (netStatus)
-		{
-			//初期状態：初期化を完了したため受信待機状態に入る
-		default:
-			netStatus = 1;
-			//return TRUE;
-			break;
+		//こちらが送信側の場合
+		case 0:
+			//相手プログラムとの接続処理を行う
+			LPHOSTENT	lpHostEntry;
+			SOCKET		s;
+			SOCKADDR_IN saSv;
+			int			nRet;
+			int			cnt = 1;
+			short		nPort = 3500;  //通信に使用するポート番号
+			char		szBuf[256];
 
-			//受信待機状態
+			//接続先をローカルホストに限定する
+			char szServer[128] = "localhost";
+
+			MyOutputDebugString(_T("\n %sの確認中です…"), szServer);
+			lpHostEntry = gethostbyname(szServer);
+			if (lpHostEntry == NULL) return FALSE;  //接続先の指定エラーを返す
+			MyOutputDebugString("OK!\n");
+
+			//ソケットの作成処理
+			s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+			saSv.sin_family = AF_INET;
+			saSv.sin_addr = *((LPIN_ADDR)*lpHostEntry->h_addr_list);
+			saSv.sin_port = htons(nPort);
+			nRet = connect(s, (LPSOCKADDR)&saSv, sizeof(struct sockaddr));  
+			//↑で相手サーバーに接続する
+
+			//メモ：浮動小数点から文字列に変換する関数
+			//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
+			//この関数で、ここでは自分のスコアを変換し書き込む
+			snprintf(szBuf, 256, "%f", Score2);
+
+			//送信する
+			nRet = send(remS, szBuf, strlen(szBuf), 0);
+
+			break;
+		//こちらが受信側の場合
 		case 1:
-			//接続受け入れ
+			//Connect要求が来るまで待機
+			nRet = listen(lisS, SOMAXCONN);
+			MyOutputDebugString("接続待機状態に入ります…");
+
+			//受信を承諾する
 			remS = accept(lisS, NULL, NULL);
 			MyOutputDebugString("接続完了しました\n");
 			MyOutputDebugString("相手を待っています…\n");
@@ -191,16 +245,9 @@ int netBattle(int score)
 				if (nRet == SOCKET_ERROR)break;
 				if (strcmp(szBuf, "byebye") == 0)break;
 			}
-			//送受信が完了！
-			netStatus = 2;
 			break;
-
-			//処理完了後、相手のスコアを表示する
-			case 2:
-
-				return TRUE;
-		}
 	}
+
 }
 
 //	フレーム処理
@@ -294,17 +341,58 @@ void moveGame2Scene()
 		//Nキーでネットワーク対戦をする
 		if (CheckHitKey(KEY_INPUT_N) == 1)
 		{
-			//ポート番号を3500に指定し、スコアも一緒に送信する
+			//自分のスコアを送信する
 			netBattle(Score2);
 		}
 
 		break;
+
+	case 4:		//まず送信者か、受信者かを選択してもらう
+		//７メニュー項目の選択
+		//７(1) ①新たに↑が押されたら、
+		if ((EdgeInput & PAD_INPUT_UP)) 
+		{
+			//７(1) ②１つ上のメニュー項目が選択されたとする。
+			//      　ただし、それより上のメニュー項目がないときは、最下段のメニュー項目が選択されたとする
+			if (--selectedGame2 < 0) 
+			{
+				selectedGame2 = MENU_MAX_G - 1;
+			}
+		}
+
+		//７(2) ①新たに↓が押されたら、
+		if ((EdgeInput & PAD_INPUT_DOWN))
+		{
+			//７(2) ②１つ下のメニュー項目が選択されたとする。。
+			//      　ただし、それより下のメニュー項目がないときは、最上段のメニュー項目が選択されたとする
+			if (++selectedGame2 >= MENU_MAX_G) 
+			{
+				selectedGame2 = 0;
+			}
+		}
+
+		//７(3) 新たにボタン１が押されたら決定
+		if ((EdgeInput & PAD_INPUT_1)) 
+		{
+			//0が選ばれたら送信者、1が選ばれたら受信者
+			//この後、ステータスをゲーム本編に移す
+			if (selectedGame2 == 0)sideSelect = 0;
+			else if (selectedGame2 == 1)sideSelect = 1;
+			status2 = 0;
+		}
+		if(sideSelect != 2)break;
 	}
 }
 
 //	レンダリング処理
 void renderGame2Scene(void)
 {
+	//挑むか、挑まれるかを選択させる
+	switch (sideSelect)
+	{
+
+	}
+	
 	//Rリセット可能であることを通知
 	if (status2 == 3)
 	{
@@ -313,6 +401,32 @@ void renderGame2Scene(void)
 	else
 	{
 		DrawString(30, 50, "Gキーで開始、Sキーで停止", ColorWhite2);
+	}
+
+	//ネット対戦を終えた場合：勝敗を判断し、表示する
+	if (netStatus == 2)
+	{
+		//受信したスコアを浮動小数点数に戻す
+		float scJudge = strtof(rcScore, NULL);
+
+		scJudge = floor(scJudge);
+		float Score2J = floor(Score2);
+
+		//自分のスコアより少ない場合
+		if (scJudge < Score2J)
+		{
+			DrawString(30, 50, "あなたの勝利です！", ColorSkyLike2);
+		}
+		//同じ場合
+		else if (scJudge == Score2J)
+		{
+			DrawString(30, 50, "なんと…引き分け！", ColorYellow2);
+		}
+		//自分のスコアより多い場合
+		else if (scJudge > Score2J)
+		{
+			DrawString(30, 50, "あなたの敗北です…", ColorBlue2);
+		}
 	}
 
 	DrawString(30, 100, "Xボタンでタイトルに戻る", ColorWhite2);
@@ -328,11 +442,16 @@ void renderGame2Scene(void)
 	else if (status2 == 3)
 	{
 		DrawFormatString(30, 250, ColorYellow2, "ただいま：%3.1f倍速", CalMulti2);
+		//ネット上でのスコア交換が終わったならば、相手のスコアに表示を変える
+		if (netStatus == 2)
+		{
+			DrawFormatString(30, 250, ColorRed2, "相手のスコアは%s", rcScore);
+		}
 	}
 
 	//フレーム値は÷60して表示すること！
 	DrawFormatString(30, 350, ColorGreen2, "現在の時間：%3.2f秒", FrameTmp2 / 60);
-	DrawFormatString(30, 400, ColorSkyLike2, "スコア：%3.1f", Score2);
+	DrawFormatString(30, 400, ColorSkyLike2, "スコア：%3.1f点", Score2);
 }
 
 //	シーン終了時の後処理
