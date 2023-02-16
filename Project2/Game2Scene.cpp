@@ -4,6 +4,28 @@
 #include <math.h>
 #include <string.h>
 
+#include <stdio.h>
+#include <Windows.h>
+#include <iostream>
+#include <winsock.h>
+#pragma comment(lib, "wsock32.lib")
+#define _CRT_SECURE_NO_WARNINGS
+
+//デバッグ文字列出力マクロ
+//使用方法：
+//MyOutputDebugString(_T"出力したい文字 %s", 指定する対応変数);
+//※_Tは変数を混ぜたい場合にのみ使用する
+#ifdef _DEBUG
+#   define MyOutputDebugString( str, ... ) \
+      { \
+        TCHAR c[256]; \
+        _stprintf( c, str, __VA_ARGS__ ); \
+        OutputDebugString( c ); \
+      }
+#else
+#    define MyOutputDebugString( str, ... ) // 空実装
+#endif
+
 //外部定義(GameMain.cppにて宣言)+変数シードに使ったミリ秒データ
 extern int Input, EdgeInput, rdSeed;
 
@@ -12,7 +34,7 @@ float RandomTgt2, CalFrame2;
 float RandomMtp2, CalMulti2;
 void targetTimeSet2();
 //ネットワーク対戦用の関数も追加する
-void netBattle();
+int netBattle(int score);
 
 //計測用変数、記録用変数を宣言
 float FrameTmp2 = 0.0;
@@ -23,7 +45,7 @@ float ScMulti2, Score2 = 0.0;
 //2=計測中、3=計測完了、スコア加算OK（ここまでは仮）
 int status2 = 0;
 //ネットワーク対戦用のステータス変数
-//0=初期状態、1=送信側モード、2=受信側モード
+//0=初期状態、1=接続待機モード、2=受信側モード？
 int netStatus = 0;
 
 //色変数セット
@@ -55,18 +77,61 @@ void targetTimeSet2()
 }
 
 //ネットワーク対戦部分：TCPを応用した通信を行う
-void netBattle()
+//設定するポート番号は「3500」
+int netBattle(int score)
 {
+	//ココから初期化処理
+	WORD    wVerReq = MAKEWORD(1, 1);
+	WSADATA wsaData;
+	int     nRet;
+	nRet = WSAStartup(wVerReq, &wsaData);
+
+	if (wsaData.wVersion != wVerReq)
+	{
+		fprintf(stderr, "\n Wrong Version\n");
+		return -1;
+	}
+	MyOutputDebugString("\n簡易通信プログラム 起動準備：第1段階完了");
+
+	nRet = 1;
+	int nLen, cnt = 1;
+	char        szBuf[256];
+	SOCKET      lisS, remS;
+	SOCKADDR_IN saSv;
+	//ソケット定義
+	lisS = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+	saSv.sin_family = AF_INET;
+	//Let Winsock supply address
+	saSv.sin_addr.s_addr = INADDR_ANY;
+	//Use Port from command line
+	saSv.sin_port = htons(3500);
+	nRet = bind(lisS, (LPSOCKADDR)&saSv, sizeof(struct sockaddr));
+
+	nLen = sizeof(SOCKADDR);
+	nRet = gethostname(szBuf, sizeof(szBuf));
+	if (nRet == SOCKET_ERROR)
+	{
+		closesocket(lisS);
+		return 0;
+	}
+
+	LPHOSTENT lpInAddr = gethostbyname(szBuf);
+
+	//デバッグ出力
+	MyOutputDebugString(_T("\nこのパソコンは\n、%s または %s です\n"),
+		szBuf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
+
+	//Connect要求が来るまで待機
+	nRet = listen(lisS, SOMAXCONN);
+	MyOutputDebugString("接続待機状態に入ります…");
+	//ココまで初期化処理
+
 	switch (netStatus)
 	{
-		//初期状態
-		case 0:
-
-		//送信側の時
-		case 1:
-
-		//受信側の時
-		case 2:
+		default:
+			return TRUE;
+			break;
 	}
 }
 
@@ -159,9 +224,10 @@ void moveGame2Scene()
 		}
 
 		//Nキーでネットワーク対戦をする
-		if ((EdgeInput & KEY_INPUT_N))
+		if (CheckHitKey(KEY_INPUT_N) == 1)
 		{
-			
+			//ポート番号を3500に指定し、スコアも一緒に送信する
+			netBattle(Score2);
 		}
 
 		break;
@@ -174,7 +240,7 @@ void renderGame2Scene(void)
 	//Rリセット可能であることを通知
 	if (status2 == 3)
 	{
-		DrawString(30, 50, "Rキーでリセット", ColorWhite2);
+		DrawString(30, 50, "Rキーでリセット、Nキーでネット対戦", ColorWhite2);
 	}
 	else
 	{
@@ -204,6 +270,7 @@ void renderGame2Scene(void)
 //	シーン終了時の後処理
 void releaseGame2Scene(void)
 {
+	WSACleanup();
 }
 
 // 当り判定コールバック 　　　ここでは要素を削除しないこと！！
