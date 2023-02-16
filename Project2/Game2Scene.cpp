@@ -80,6 +80,10 @@ void targetTimeSet2()
 //設定するポート番号は「3500」
 int netBattle(int score)
 {
+	//ネットワーク処理中であるかを示す変数
+	//処理が完了したら0に変更する
+	int cFunc = 1;
+
 	//ココから初期化処理
 	WORD    wVerReq = MAKEWORD(1, 1);
 	WSADATA wsaData;
@@ -96,6 +100,7 @@ int netBattle(int score)
 	nRet = 1;
 	int nLen, cnt = 1;
 	char        szBuf[256];
+	char		rcScore[256];	//受け取ったスコアを格納する
 	SOCKET      lisS, remS;
 	SOCKADDR_IN saSv;
 	//ソケット定義
@@ -127,11 +132,74 @@ int netBattle(int score)
 	MyOutputDebugString("接続待機状態に入ります…");
 	//ココまで初期化処理
 
-	switch (netStatus)
+	//初期化処理が終わるまで抜けてはいけません
+	while (cFunc == 1)
 	{
+		switch (netStatus)
+		{
+			//初期状態：初期化を完了したため受信待機状態に入る
 		default:
-			return TRUE;
+			netStatus = 1;
+			//return TRUE;
 			break;
+
+			//受信待機状態
+		case 1:
+			//接続受け入れ
+			remS = accept(lisS, NULL, NULL);
+			MyOutputDebugString("接続完了しました\n");
+			MyOutputDebugString("相手を待っています…\n");
+
+			//受信の繰り返し
+			while (szBuf != NULL)
+			{
+				memset(szBuf, 0, sizeof(szBuf));
+				//受信プロセス
+				nRet = recv(remS, szBuf, sizeof(szBuf), 0);
+				if (nRet == SOCKET_ERROR)
+				{
+					closesocket(lisS);
+					closesocket(remS);
+					return 0;
+				}
+				//受信内容を表示する
+				MyOutputDebugString(_T("%ld>%s\n"), cnt++, szBuf);
+
+				//受信した相手のスコアを格納する
+				for (int i = 0; i < 256; i++)
+				{
+					rcScore[i] = szBuf[i];
+				}
+
+				//終了のキーワードを判別する
+				//if (strcmp(szBuf, "byebye") == 0)break;
+
+				//送信データを入力させる
+				//printf("入力>>");
+				//scanf("%s", szBuf);
+
+				//メモ：浮動小数点から文字列に変換する関数
+				//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
+				//この関数で、ここでは自分のスコアを変換し書き込む
+				snprintf(szBuf, 256, "%f", Score2);
+
+				//送信する
+				nRet = send(remS, szBuf, strlen(szBuf), 0);
+
+				//この部分にbyebye切断コードを入れるか？一旦保留で。
+
+				if (nRet == SOCKET_ERROR)break;
+				if (strcmp(szBuf, "byebye") == 0)break;
+			}
+			//送受信が完了！
+			netStatus = 2;
+			break;
+
+			//処理完了後、相手のスコアを表示する
+			case 2:
+
+				return TRUE;
+		}
 	}
 }
 
