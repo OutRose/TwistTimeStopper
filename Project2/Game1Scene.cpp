@@ -1,4 +1,4 @@
-#include "GameMain.h"
+﻿#include "GameMain.h"
 #include "GameSceneMain.h"
 #include "Game1Scene.h"
 #include <math.h>
@@ -41,11 +41,11 @@ BOOL initGame1Scene(void)
 void targetTimeSet()
 {
 	//目標時間をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomTgt = GetRand(19) + 1;
+	RandomTgt = (float)(GetRand(19) + 1);
 	CalFrame = RandomTgt * 60;
 
 	//倍速値をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomMtp = GetRand(39) + 10;
+	RandomMtp = (float)(GetRand(39) + 10);
 	CalMulti = RandomMtp / 10;
 }
 
@@ -122,7 +122,7 @@ void moveGame1Scene()
 		else if (CalFrame == FrameTmp)//目標ピッタリ！？
 		{
 			//フレーム単位で合わせるとは油断ならぬ。ボーナス！
-			Score = CalFrame * 1.25;
+			Score = CalFrame * 1.25f;
 		}
 
 		//Rキーで状態リセット
