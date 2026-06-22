@@ -33,6 +33,60 @@ if ($text.Contains([char]0xFFFD)) { throw 'decode failed' }
 
 ---
 
+## ビルド環境
+
+- **ソリューション**: [Project2.sln](Project2.sln) (構成は **Debug|Win32 / Release|Win32 のみ**、x64 構成なし)
+- **DxLib**: **`C:\DxLib` にインストール前提** ([Project2/Project2.vcxproj](Project2/Project2.vcxproj) で AdditionalIncludeDirectories と AdditionalLibraryDirectories にハードコード)。vendored ではないので新規環境では別途配置が必要。
+- **画面**: 800×700 / 24bit カラー / ウィンドウモード固定 ([Project2/GameMain.cpp:43](Project2/GameMain.cpp#L43) `SetGraphMode(800, 700, 24)`、`ChangeWindowMode(true)`)
+- **フレームレート**: 60 FPS ビジーウェイト (`while (GetNowCount() - FrameStartTime < 1000/60) {}` のループ、[Project2/GameMain.cpp](Project2/GameMain.cpp) 行 69 付近)
+- **エントリーポイント**: `WinMain` ([Project2/GameMain.cpp:19](Project2/GameMain.cpp#L19))
+
+### 毎フレームの定型フロー
+
+```cpp
+ClearDrawScreen();       // 1. バックバッファクリア
+GetJoypadInputState();   // 2. 入力取得 (EdgeInput 更新含む)
+sceneMove();             // 3. シーン更新
+sceneRender();           // 4. シーン描画
+ScreenFlip();            // 5. 表示反映
+// 60FPS 待機
+```
+
+ループ脱出は `ProcessMessage() == -1` または `CheckHitKey(KEY_INPUT_ESCAPE)`。終了時に `DxLib_End()`。
+
+---
+
+## シーンアーキテクチャ
+
+### enum とグローバル状態
+
+[Project2/GameSceneMain.h](Project2/GameSceneMain.h) で `SCENE_NO` enum を定義: `SCENE_NONE (-1)`, `SCENE_MENU`, `SCENE_GAME1`, `SCENE_GAME2`, `SCENE_GAME3`, `SCENE_MAX`。
+[Project2/GameSceneMain.cpp](Project2/GameSceneMain.cpp) で `static SCENE_NO sceneNo, prevScene, nextScene` を管理。
+
+### 4 関数命名規約 (シーンごとに必須)
+
+各シーン名 `XXXScene` (Menu / Game1 / Game2 / Game3) に対し:
+
+| 関数 | 役割 |
+|---|---|
+| `initXXXScene()` | リソース確保 / 初期化。シーン入場時 1 回呼ばれる。 |
+| `moveXXXScene()` | 毎フレームの状態更新。 |
+| `renderXXXScene()` | 毎フレームの描画。 |
+| `releaseXXXScene()` | リソース解放。シーン退場時 1 回呼ばれる。 |
+| `XXXSceneCollideCallback(nSrc, nTarget, nCollideID)` | DxLib 衝突判定コールバック。 |
+
+新規シーン追加時はこの 5 関数を揃え、[Project2/GameSceneMain.cpp](Project2/GameSceneMain.cpp) のディスパッチに登録する。
+
+### 遷移
+
+`changeScene(SCENE_NO no)` で `nextScene` を設定。次フレームに `sceneNo != nextScene` を検出した時点で `releaseXXX → initYYY → sceneNo = nextScene` の順で実行される。
+
+### ⚠️ CollideCallback の制約
+
+[Project2/GameSceneMain.cpp:62](Project2/GameSceneMain.cpp#L62) 付近に「**ここでは要素を削除しないこと！！**」コメントあり。DxLib の衝突判定列挙の最中に呼ばれるため、コールバック内で対象オブジェクトを `delete` するとイテレータ破壊で UB になる。削除はフラグを立てて `moveXXXScene` 内で実施するパターン。
+
+---
+
 ## 命名規約
 
 ### インクルードガード
@@ -50,6 +104,64 @@ if ($text.Contains([char]0xFFFD)) { throw 'decode failed' }
 | GameSceneMain.h | `GAMESCENEMAIN_H_` |
 
 Game1/2/3Scene は **`GAMESCENE<N>_H_`** (数字は GAMESCENE の後)。`GAME<N>SCENE_H_` ではないので注意。
+
+### インデント
+
+[.editorconfig](.editorconfig) で `indent_style = tab`。既存ファイルもタブ。
+
+---
+
+## 入力処理
+
+### 仕組み
+
+[Project2/GameMain.cpp](Project2/GameMain.cpp) の毎フレーム冒頭:
+```cpp
+int i = GetJoypadInputState(DX_INPUT_KEY_PAD1);  // 現フレームのビットマスク
+EdgeInput = i & ~Input;                           // 立ち上がりエッジ (押された瞬間)
+Input = i;                                        // 現状保持
+```
+
+- **`Input`** (グローバル `int`): 押されている間ずっと真。
+- **`EdgeInput`** (グローバル `int`): 押された瞬間の 1 フレームだけ真。
+
+### 使い分け
+
+| 用途 | 推奨 |
+|---|---|
+| メニュー移動 / 確定 (連打防止したい) | `EdgeInput & PAD_INPUT_UP` 等 |
+| 移動 / 押しっぱなしで効くアクション | `Input & PAD_INPUT_*` |
+| キーボード直接検査 (パッドにマップされない G/S/X 等) | `CheckHitKey(KEY_INPUT_G) == 1` |
+
+代表例: [Project2/MenuScene.cpp:32](Project2/MenuScene.cpp#L32) で `EdgeInput & PAD_INPUT_UP`、[Project2/Game1Scene.cpp:71](Project2/Game1Scene.cpp#L71) で `CheckHitKey(KEY_INPUT_G)`。
+
+### 入力定義
+
+[入力Inputについて.txt](入力Inputについて.txt) に PAD_INPUT_* 一覧 (現時点 1 プレイヤーのみ)。
+
+---
+
+## ネットワーク現状 (Game2Scene の netBattle)
+
+**未完成。完成させない方針** (下記「未完成機能」参照)。ただし現状の構造を把握するために要点を記載:
+
+- **プロトコル**: TCP (`SOCK_STREAM`, `IPPROTO_TCP`)、ポート **3500**
+- **接続先**: `"localhost"` ハードコード ([Project2/Game2Scene.cpp:169](Project2/Game2Scene.cpp#L169))
+- **データ**: スコア (float) を `snprintf("%f", ...)` で文字列化して送受信
+- **役割切替**: `sideSelect` 変数 (UI 上で N キー押下時に切り替え予定だが、その UI 自体未実装)
+  - `sideSelect = 0`: クライアント (`socket` → `connect` → `send`)
+  - `sideSelect = 1`: サーバー (`socket` → `bind` → `listen` → `accept` → `recv`)
+- **既知バグ**: クライアント側の `case 0` で `remS` (未初期化) を `send` 引数に渡している。本来は送信用 socket `s` を渡すべき。実行すると失敗するが、警告は SOCKET 変数の `INVALID_SOCKET` 初期化で抑止済み。
+
+---
+
+## DxLib のお作法 (細かい点)
+
+- **フォント**: `SetFontSize(N)` / `ChangeFontType(DX_FONTTYPE_*)` はグローバル状態なので、各シーンの init で必ず設定し直す ([Project2/Game2Scene.cpp:85-86](Project2/Game2Scene.cpp#L85-L86) が代表例)。
+- **色**: `GetColor(R, G, B)` の戻り値 `unsigned int` はキャッシュする (毎フレーム計算しない)。[Project2/Game1Scene.cpp:25-31](Project2/Game1Scene.cpp#L25-L31) 参照。
+- **座標系**: 原点 (0, 0) は **画面左上**。`DrawString(x, y, str, color)` で直接指定。
+- **乱数**: `GetRand(n)` で 0〜n-1。シードは起動時に `GetNowCount()` で `SRand` 初期化済み ([Project2/GameMain.cpp:16](Project2/GameMain.cpp#L16))。
+- **デバッグ出力**: `MyOutputDebugString(...)` マクロ ([Project2/Game2Scene.cpp:19-26](Project2/Game2Scene.cpp#L19-L26) 定義)。Debug 構成でのみ実体化。
 
 ---
 
@@ -94,10 +206,17 @@ default: break;  // ← 追加
 
 過去の方針: 「未完成機能の完成は不要、プレースホルダ/コメントで OK」。以下は触らない:
 
-- `netBattle` のネットワーク同期 (Game2Scene.cpp)
-- `case 0` 内で `s` ではなく `remS` を使うべきという既知ロジックバグ
+- `netBattle` のネットワーク同期 (Game2Scene.cpp) — 上述の `remS` バグ含めて触らない
 - Game3Scene の中身全般 ([Project2/Game3Scene.cpp](Project2/Game3Scene.cpp))
 - メニュー第 3 項目 (`SCENE_GAME3`)
+
+---
+
+## Git 慣習
+
+- **コミットメッセージ**: 日本語。Claude Code 経由の作業には先頭に **`CC：`** プレフィックス (全角コロン) を付ける。例: `CC：エンコーディング統一、ルール追加、.md ファイル追加`。複数作業を 1 コミットにまとめる場合はコンマ区切り。
+- **ブランチ**: 作業ブランチは `refact-<YYMMDD>-<purpose>` 形式 (例: `refact-260621-base`)。master が安定ブランチ。
+- **コミットは原則ユーザーが手動で行う**。Claude は working tree に変更を残すまでで、`git commit` は実行しない (ユーザーから明示の指示があるまで)。
 
 ---
 
@@ -106,8 +225,5 @@ default: break;  // ← 追加
 完了済みの方針判断 (再議論不要):
 
 - **ビルドエラー解消** (前々セッション): Game1Scene.cpp に UTF-8 BOM 付与、Game2Scene.cpp に `#include <tchar.h>` 追加・`netBattle` の case ブロック化・`return 0;` 追加・SOCKET 変数の `INVALID_SOCKET` 初期化。
-- **デッドコード整理** (2026-06-22):
-  - `initGame2Scene` 内の到達不能な 2 つ目の `return TRUE;` 削除
-  - Game2Scene.cpp の未使用 `#include <iostream>` 削除 (副作用で `floor` → `floorf` 置換)
-  - Game2Scene.h のインクルードガードを `GAME2SCENE_H` → `GAMESCENE2_H_` に統一
+- **デッドコード整理** (2026-06-22): `initGame2Scene` 内の到達不能な 2 つ目の `return TRUE;` 削除 / Game2Scene.cpp の未使用 `#include <iostream>` 削除 (副作用で `floor` → `floorf` 置換) / Game2Scene.h のインクルードガードを `GAME2SCENE_H` → `GAMESCENE2_H_` に統一。
 - **エンコーディング統一** (2026-06-22): 残り 13 ファイル (Project2 配下の .cpp/.h と入力Inputについて.txt、CountTimeSysExample.txt) を CP932 → UTF-8 BOM に変換。[.editorconfig](.editorconfig) を新設して以後の保存を BOM 強制。
