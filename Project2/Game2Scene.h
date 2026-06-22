@@ -1,5 +1,5 @@
-#ifndef GAME2SCENE_H
-#define GAME2SCENE_H
+#ifndef GAMESCENE2_H_
+#define GAMESCENE2_H_
 // GameScene.cppファイル内の関数のうち、他のファイルから呼び出される関数のプロトタイプ宣言を記述する
 
 BOOL initGame2Scene(void);

@@ -7,7 +7,6 @@
 #include <stdio.h>
 #include <Windows.h>
 #include <tchar.h>
-#include <iostream>
 #include <winsock.h>
 #pragma comment(lib, "wsock32.lib")
 #define _CRT_SECURE_NO_WARNINGS
@@ -87,8 +86,6 @@ BOOL initGame2Scene(void)
 	ChangeFontType(DX_FONTTYPE_ANTIALIASING_EDGE_8X8);
 
 	selectedGame2 = 0;
-
-	return TRUE;
 
 	return TRUE;
 }
@@ -410,8 +407,8 @@ void renderGame2Scene(void)
 		//受信したスコアを浮動小数点数に戻す
 		float scJudge = strtof(rcScore, NULL);
 
-		scJudge = floor(scJudge);
-		float Score2J = floor(Score2);
+		scJudge = floorf(scJudge);
+		float Score2J = floorf(Score2);
 
 		//自分のスコアより少ない場合
 		if (scJudge < Score2J)
