@@ -63,10 +63,15 @@ GAME2_STATE status2 = GAME2_STATE_SIDE_SELECT;
 //ネットワーク対戦用のステータス変数
 //0=初期状態、1=接続待機モード、2=受信側モード？
 int netStatus = 0;
-//あなたは挑まれるのか、挑むのか（受信か、送信か）
-//0=挑む側(先に送信するクライアント)、1=挑まれる側（受信するサーバー）
-//2=未選択状態
-int sideSelect = 2;
+//ネットワーク対戦の役割 (Game2 専用、詳細は下記 NET_SIDE enum 参照)
+//現状は Game2Scene 内のみで使用、将来別シーンで再利用する場合は GameSceneMain.h へ昇格を検討
+typedef enum _NET_SIDE {
+	NET_SIDE_CHALLENGER = 0,		// 挑む側 (先に送信するクライアント、socket→connect→send)
+	NET_SIDE_DEFENDER = 1,			// 挑まれる側 (受信するサーバー、socket→bind→listen→accept→recv)
+	NET_SIDE_UNSELECTED = 2			// 未選択 (シーン入場直後の初期状態)
+} NET_SIDE;
+
+NET_SIDE sideSelect = NET_SIDE_UNSELECTED;
 
 //色変数セット
 unsigned int ColorWhite2 = GetColor(255, 255, 255);
@@ -156,7 +161,7 @@ int netBattle(float score)
 	switch (sideSelect)
 	{
 		//こちらが送信側の場合
-		case GAME2_STATE_INIT: {
+		case NET_SIDE_CHALLENGER: {
 			//相手プログラムとの接続処理を行う
 			LPHOSTENT	lpHostEntry;
 			SOCKET		s;
@@ -194,7 +199,7 @@ int netBattle(float score)
 			break;
 		}
 		//こちらが受信側の場合
-		case GAME2_STATE_READY: {
+		case NET_SIDE_DEFENDER: {
 			//Connect要求が来るまで待機
 			nRet = listen(lisS, SOMAXCONN);
 			MyOutputDebugString("接続待機状態に入ります…");
@@ -378,11 +383,11 @@ void moveGame2Scene()
 		{
 			//0が選ばれたら送信者、1が選ばれたら受信者
 			//この後、ステータスをゲーム本編に移す
-			if (selectedGame2 == 0)sideSelect = 0;
-			else if (selectedGame2 == 1)sideSelect = 1;
+			if (selectedGame2 == 0)sideSelect = NET_SIDE_CHALLENGER;
+			else if (selectedGame2 == 1)sideSelect = NET_SIDE_DEFENDER;
 			status2 = GAME2_STATE_INIT;
 		}
-		if(sideSelect != 2)break;
+		if(sideSelect != NET_SIDE_UNSELECTED)break;
 	}
 }
 
