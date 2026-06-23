@@ -197,7 +197,7 @@ Input = i;                                        // 現状保持
 ## DxLib のお作法 (細かい点)
 
 - **フォント**: `SetFontSize(N)` / `ChangeFontType(DX_FONTTYPE_*)` はグローバル状態なので、各シーンの init で必ず設定し直す ([Project2/Game2Scene.cpp:85-86](Project2/Game2Scene.cpp#L85-L86) が代表例)。
-- **色**: `GetColor(R, G, B)` の戻り値 `unsigned int` はキャッシュする (毎フレーム計算しない)。[Project2/Game1Scene.cpp:25-31](Project2/Game1Scene.cpp#L25-L31) 参照。
+- **色**: `GetColor(R, G, B)` の戻り値 `unsigned int` はキャッシュする (毎フレーム計算しない)。[GameMain.cpp](Project2/GameMain.cpp) で 7 色を共通定義、[GameMain.h](Project2/GameMain.h) で `extern` 公開 (β-D-2a 以降、全シーン共通)。
 - **座標系**: 原点 (0, 0) は **画面左上**。`DrawString(x, y, str, color)` で直接指定。
 - **乱数**: `GetRand(n)` で 0〜n-1。シードは起動時に `GetNowCount()` で `SRand` 初期化済み ([Project2/GameMain.cpp:16](Project2/GameMain.cpp#L16))。
 - **デバッグ出力**: `MyOutputDebugString(...)` マクロ ([Project2/Game2Scene.cpp:19-26](Project2/Game2Scene.cpp#L19-L26) 定義)。Debug 構成でのみ実体化。
@@ -310,9 +310,16 @@ default: break;  // ← 追加
 
 **完了**:
 1. **β-D-1**: シーンディスパッチャ共通化 — [GameSceneMain.cpp](Project2/GameSceneMain.cpp) の 5 つの `switch (sceneNo)` を `SCENE_HANDLERS` 関数ポインタ束 + `sceneTable` 配列 + 1 行ディスパッチへ。`prevScene` 削除、`MessageBox` 5 箇所撤去 (プラットフォーム依存解消)、シーン追加コストが 5 箇所 → 2 箇所 (enum + テーブル) に減
+2. **β-D-2a**: 色変数共通化 — Game1/2 のサフィックス`2` 並走を解消。7 色 (`ColorWhite`〜`ColorSkyLike`) を [GameMain.cpp](Project2/GameMain.cpp) に集約定義 + [GameMain.h](Project2/GameMain.h) で `extern` 公開。[MenuScene.cpp](Project2/MenuScene.cpp) と [Game3Scene.cpp](Project2/Game3Scene.cpp) の `GetColor` 直呼び 7 箇所も共通変数に置換 (= 観点6 マジックナンバー RGB 直値部分解消)
 
-**未着手**:
-- **β-D-2 以降**: Game1/2Scene のサフィックス `2` 重複解消・共通基盤化 (色変数共通化、targetTimeSet 関数共通化、TIMER_STATE 構造体導入、スコア計算共通化 等)、エラーハンドリング強化、マジックナンバー定数化 等
+**未着手 (β-D-2 続き)**:
+- **β-D-2b**: targetTimeSet 関数共通化
+- **β-D-2c**: TIMER_STATE 構造体導入 (計測変数集約)
+- **β-D-2d**: スコア計算共通化
+
+**未着手 (β-D その他)**:
+- エラーハンドリング強化 (`DxLib_Init` 失敗時、`changeScene` 範囲外時等)
+- マジックナンバー定数化 (描画座標、フレーム換算 60、ボーナス係数 1.25f、ポート 3500、バッファ 256 等)
 
 ### フェーズ γ: LAN ネットワーク対戦の完成
 

@@ -52,20 +52,20 @@ void moveMenuScene() {
 
 //レンダリング処理
 void renderMenuScene(void) {
-	DrawString(85, 50, "ねじれストップウォッチ（仮）", GetColor(255, 255, 255));
-	DrawString(215, 100, "Version 0.6", GetColor(255, 255, 255));
-	DrawString(85, 400, "Zキーで決定、ESCキーで終了", GetColor(255, 255, 255));
+	DrawString(85, 50, "ねじれストップウォッチ（仮）", ColorWhite);
+	DrawString(215, 100, "Version 0.6", ColorWhite);
+	DrawString(85, 400, "Zキーで決定、ESCキーで終了", ColorWhite);
 
 	//６(2) メニュー項目の表示
 	int x = 195, y = 200, gapY = 80;	//（x,y)：表示開始座標　gapY：行の高さ
 	for (int i = 0; i < MENU_MAX; i++, y += gapY) {
 		//６(2) ①選択された項目の表示
 		if (i == selectedGame) {
-			DrawString(x, y, menuList[i], GetColor(255, 0, 0));
+			DrawString(x, y, menuList[i], ColorRed);
 			//６(2) ②選択されていない項目の表示
 		}
 		else {
-			DrawString(x, y, menuList[i], GetColor(255, 255, 255));
+			DrawString(x, y, menuList[i], ColorWhite);
 		}
 	}
 }

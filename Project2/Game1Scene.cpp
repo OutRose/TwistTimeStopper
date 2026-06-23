@@ -17,15 +17,6 @@ float ScMulti, Score = 0.0;
 //状態遷移マネージメント変数 (詳細は GameSceneMain.h の TIMER_STATUS を参照)
 TIMER_STATUS status = TIMER_STATUS_INIT;
 
-//色変数セット
-unsigned int ColorWhite = GetColor(255, 255, 255);
-unsigned int ColorRed = GetColor(255, 0, 0);
-unsigned int ColorGreen = GetColor(0, 255, 0);
-unsigned int ColorBlue = GetColor(0, 0, 255);
-unsigned int ColorYellow = GetColor(255, 255, 0);
-unsigned int ColorPurple = GetColor(255, 0, 255);
-unsigned int ColorSkyLike = GetColor(0, 255, 255);
-
 // シーン開始前の初期化を行う
 BOOL initGame1Scene(void)
 {

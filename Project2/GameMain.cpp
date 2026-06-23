@@ -13,6 +13,15 @@ int EdgeInput;
 //乱数の初期化：起動ごとに変更される
 int rdSeed = GetNowCount();
 
+//色変数 (全シーン共通、GetColor は static init で値計算可能、DxLib_Init 前でも問題なし)
+unsigned int ColorWhite   = GetColor(255, 255, 255);
+unsigned int ColorRed     = GetColor(255,   0,   0);
+unsigned int ColorGreen   = GetColor(  0, 255,   0);
+unsigned int ColorBlue    = GetColor(  0,   0, 255);
+unsigned int ColorYellow  = GetColor(255, 255,   0);
+unsigned int ColorPurple  = GetColor(255,   0, 255);
+unsigned int ColorSkyLike = GetColor(  0, 255, 255);
+
 //WinMain関数
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 	//実行ログを出力しない

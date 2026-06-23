@@ -20,8 +20,8 @@ void moveGame3Scene() {
 
 //	レンダリング処理
 void renderGame3Scene(void) {
-	DrawString(30, 50, "ゲーム画面１です", GetColor(255, 255, 255));
-	DrawString(30, 100, "ボタン１でタイトルに戻る", GetColor(255, 255, 255));
+	DrawString(30, 50, "ゲーム画面１です", ColorWhite);
+	DrawString(30, 100, "ボタン１でタイトルに戻る", ColorWhite);
 }
 
 //	シーン終了時の後処理

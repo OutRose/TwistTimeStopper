@@ -73,15 +73,6 @@ typedef enum _NET_SIDE {
 
 NET_SIDE sideSelect = NET_SIDE_UNSELECTED;
 
-//色変数セット
-unsigned int ColorWhite2 = GetColor(255, 255, 255);
-unsigned int ColorRed2 = GetColor(255, 0, 0);
-unsigned int ColorGreen2 = GetColor(0, 255, 0);
-unsigned int ColorBlue2 = GetColor(0, 0, 255);
-unsigned int ColorYellow2 = GetColor(255, 255, 0);
-unsigned int ColorPurple2 = GetColor(255, 0, 255);
-unsigned int ColorSkyLike2 = GetColor(0, 255, 255);
-
 // シーン開始前の初期化を行う
 BOOL initGame2Scene(void)
 {
@@ -400,11 +391,11 @@ void renderGame2Scene(void)
 	//Rリセット可能であることを通知
 	if (status2 == GAME2_STATE_DONE)
 	{
-		DrawString(30, 50, "Rキーでリセット、Nキーでネット対戦", ColorWhite2);
+		DrawString(30, 50, "Rキーでリセット、Nキーでネット対戦", ColorWhite);
 	}
 	else
 	{
-		DrawString(30, 50, "Gキーで開始、Sキーで停止", ColorWhite2);
+		DrawString(30, 50, "Gキーで開始、Sキーで停止", ColorWhite);
 	}
 
 	//ネット対戦を終えた場合：勝敗を判断し、表示する
@@ -419,43 +410,43 @@ void renderGame2Scene(void)
 		//自分のスコアより少ない場合
 		if (scJudge < Score2J)
 		{
-			DrawString(30, 50, "あなたの勝利です！", ColorSkyLike2);
+			DrawString(30, 50, "あなたの勝利です！", ColorSkyLike);
 		}
 		//同じ場合
 		else if (scJudge == Score2J)
 		{
-			DrawString(30, 50, "なんと…引き分け！", ColorYellow2);
+			DrawString(30, 50, "なんと…引き分け！", ColorYellow);
 		}
 		//自分のスコアより多い場合
 		else if (scJudge > Score2J)
 		{
-			DrawString(30, 50, "あなたの敗北です…", ColorBlue2);
+			DrawString(30, 50, "あなたの敗北です…", ColorBlue);
 		}
 	}
 
-	DrawString(30, 100, "Xボタンでタイトルに戻る", ColorWhite2);
+	DrawString(30, 100, "Xボタンでタイトルに戻る", ColorWhite);
 
 	//表示形式についてメモ：INTは整数型%dで問題なし。FLOATは実数型%fを使用
 	//なお、%3.1f＝合計3桁、小数第1位以内で実数表示という意味
-	DrawFormatString(30, 200, ColorWhite2, "%3.1f秒でストップ！", RandomTgt2, CalFrame2);
+	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", RandomTgt2, CalFrame2);
 	//計測終了までは倍速非公開
 	if (status2 != GAME2_STATE_DONE)
 	{
-		DrawString(30, 250, "ただいま：？.？倍速", ColorYellow2);
+		DrawString(30, 250, "ただいま：？.？倍速", ColorYellow);
 	}
 	else if (status2 == GAME2_STATE_DONE)
 	{
-		DrawFormatString(30, 250, ColorYellow2, "ただいま：%3.1f倍速", CalMulti2);
+		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", CalMulti2);
 		//ネット上でのスコア交換が終わったならば、相手のスコアに表示を変える
 		if (netStatus == 2)
 		{
-			DrawFormatString(30, 250, ColorRed2, "相手のスコアは%s", rcScore);
+			DrawFormatString(30, 250, ColorRed, "相手のスコアは%s", rcScore);
 		}
 	}
 
 	//フレーム値は÷60して表示すること！
-	DrawFormatString(30, 350, ColorGreen2, "現在の時間：%3.2f秒", FrameTmp2 / 60);
-	DrawFormatString(30, 400, ColorSkyLike2, "スコア：%3.1f点", Score2);
+	DrawFormatString(30, 350, ColorGreen, "現在の時間：%3.2f秒", FrameTmp2 / 60);
+	DrawFormatString(30, 400, ColorSkyLike, "スコア：%3.1f点", Score2);
 }
 
 //	シーン終了時の後処理
