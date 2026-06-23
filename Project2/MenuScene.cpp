@@ -10,8 +10,6 @@ char* menuList[3] = { "ゲームスタート","ネットワークバトル","" }
 //選択されたゲームを表すメニュー番号の初期化（menuの添え字）
 static int selectedGame = 0;
 
-int startfont;
-
 //外部定義(GameMain.cppにて宣言)
 extern int Input, EdgeInput;
 
