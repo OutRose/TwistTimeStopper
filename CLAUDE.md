@@ -8,7 +8,7 @@ Visual Studio (MSVC) + DxLib による C++ ゲーム。Project2.sln / [Project2/
 
 **2026-06-22 にプロジェクト全体を UTF-8 BOM (`EF BB BF`) に統一済み。新規ファイルも UTF-8 BOM で作成すること。**
 
-[.editorconfig](.editorconfig) で `charset = utf-8-bom` を強制しているため、Visual Studio / VS Code は自動的に UTF-8 BOM で保存する。手動編集する場合も Edit/Write ツールで素直に書ける (BOM 付き UTF-8 はツールが正しく扱える)。
+[.editorconfig](.editorconfig) で `charset = utf-8-bom` を強制しているため、Visual Studio / VS Code は自動的に UTF-8 BOM で保存する。**Claude Code の Edit ツールは既存ファイルの BOM を保持するが、Write ツールは BOM を付与しない**ため、新規作成や全体書き換えに Write を使う場合は要注意 (下記「Claude Code Write ツール使用時の注意」参照)。
 
 ### 新規ファイル作成時の注意
 
@@ -18,6 +18,24 @@ PowerShell で空ファイルを作る場合は BOM を明示:
 ```
 
 `Set-Content` や `Out-File` のデフォルトは UTF-8 (BOM なし) になりがちなので避ける。
+
+### Claude Code Write ツール使用時の注意
+
+**Claude Code の Write ツールは UTF-8 BOM を自動付与しない** (改行も LF になる) ため、新規ファイル作成や既存ファイルの全体書き換えに使うと、Visual Studio が CP932 として誤解釈し、コメント内のダメ文字 (`ソ/表/能/予` など 2 バイト目が `0x5C` の文字) の `\` 混入で構文崩壊が発生する (2026-06-24 GameSceneMain.cpp β-D-1 で実際に発生、C2059/C2143 が連鎖して 30+ 件のビルドエラー)。
+
+**対策**:
+- 既存ファイルの一部修正は **Edit ツール優先** (BOM 保持される、本プロジェクトの推奨)
+- Write ツールで全体書き換えした後は **必ず PowerShell で BOM + CRLF に再保存**:
+  ```powershell
+  $path = 'D:\Repositories\TwistTimeStopper\...'
+  $bytes = [IO.File]::ReadAllBytes($path)
+  $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+  $text = $text -replace "`r?`n", "`r`n"  # CRLF に統一
+  [IO.File]::WriteAllText($path, $text, [Text.UTF8Encoding]::new($true))
+  ```
+- 確認: Git Bash で `file <path>` を実行し、`UTF-8 (with BOM) text, with CRLF line terminators` と表示されることを確認
+
+[.editorconfig](.editorconfig) は Visual Studio / VS Code に効くが、Claude Code の Write には効かない。
 
 ### 万一 Shift-JIS や無 BOM が紛れ込んだ場合の復旧
 
@@ -75,7 +93,7 @@ ScreenFlip();            // 5. 表示反映
 | `releaseXXXScene()` | リソース解放。シーン退場時 1 回呼ばれる。 |
 | `XXXSceneCollideCallback(nSrc, nTarget, nCollideID)` | DxLib 衝突判定コールバック。 |
 
-新規シーン追加時はこの 5 関数を揃え、[Project2/GameSceneMain.cpp](Project2/GameSceneMain.cpp) のディスパッチに登録する。
+新規シーン追加時はこの 5 関数を揃え、[GameSceneMain.h](Project2/GameSceneMain.h) の `SCENE_NO` enum に 1 値追加 + [GameSceneMain.cpp](Project2/GameSceneMain.cpp) の `sceneTable` に 1 行追加で登録 (β-D-1 以降、テーブル駆動)。
 
 ### 遷移
 
@@ -83,7 +101,7 @@ ScreenFlip();            // 5. 表示反映
 
 ### ⚠️ CollideCallback の制約
 
-[Project2/GameSceneMain.cpp:62](Project2/GameSceneMain.cpp#L62) 付近に「**ここでは要素を削除しないこと！！**」コメントあり。DxLib の衝突判定列挙の最中に呼ばれるため、コールバック内で対象オブジェクトを `delete` するとイテレータ破壊で UB になる。削除はフラグを立てて `moveXXXScene` 内で実施するパターン。
+[Project2/GameSceneMain.cpp](Project2/GameSceneMain.cpp) の `CollideCallback` 直上に「**ここでは要素を削除しないこと！！**」コメントあり。DxLib の衝突判定列挙の最中に呼ばれるため、コールバック内で対象オブジェクトを `delete` するとイテレータ破壊で UB になる。削除はフラグを立てて `moveXXXScene` 内で実施するパターン。
 
 ---
 
@@ -286,9 +304,15 @@ default: break;  // ← 追加
 - **β-C-3**: `sideSelect` (Game2、0=送信側/1=受信側/2=未選択) の enum 化
 - **β-C-4**: `netStatus` (Game2、0=初期/1=待機/2=受信完了) の enum 化 — ただし現状 `netStatus = 2` への遷移経路が無いため、フェーズγ (ネット対戦完成) と連動
 
-### フェーズ β-D 以降: 中〜高リスク群 (構造系)
+### フェーズ β-D: 中〜高リスク群 (構造系、進行中 2026-06-24 開始)
 
-診断で残った構造系テーマ (Game1/2Scene のサフィックス `2` 重複解消・共通基盤化、シーンディスパッチャの共通化、エラーハンドリング強化、マジックナンバー定数化 等) を順次対応予定。
+診断で残った構造系テーマを順次対応。
+
+**完了**:
+1. **β-D-1**: シーンディスパッチャ共通化 — [GameSceneMain.cpp](Project2/GameSceneMain.cpp) の 5 つの `switch (sceneNo)` を `SCENE_HANDLERS` 関数ポインタ束 + `sceneTable` 配列 + 1 行ディスパッチへ。`prevScene` 削除、`MessageBox` 5 箇所撤去 (プラットフォーム依存解消)、シーン追加コストが 5 箇所 → 2 箇所 (enum + テーブル) に減
+
+**未着手**:
+- **β-D-2 以降**: Game1/2Scene のサフィックス `2` 重複解消・共通基盤化 (色変数共通化、targetTimeSet 関数共通化、TIMER_STATE 構造体導入、スコア計算共通化 等)、エラーハンドリング強化、マジックナンバー定数化 等
 
 ### フェーズ γ: LAN ネットワーク対戦の完成
 
