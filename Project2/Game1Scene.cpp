@@ -1,8 +1,6 @@
 ﻿#include "GameMain.h"
 #include "GameSceneMain.h"
 #include "Game1Scene.h"
-#include <math.h>
-#include <string.h>
 
 //外部定義(GameMain.cppにて宣言)+変数シードに使ったミリ秒データ
 extern int Input, EdgeInput, rdSeed;

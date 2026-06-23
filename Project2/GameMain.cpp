@@ -24,15 +24,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//ウィンドウモードの設定 false:全画面設定
 	ChangeWindowMode(true);
 
-	/*
-	// ウインドウモードで起動するか確認する
-	if (MessageBox(NULL, "ウインドウモードで起動しますか？", "画面モード確認", MB_YESNO) == IDYES)
-	{
-	// ウインドウモードで起動
-	ChangeWindowMode(TRUE);
-	}
-	*/
-
 	//ウィンドウのリサイズ
 	//Check:実行中に画面の大きさが変更可能か
 	SetWindowSizeChangeEnableFlag(true);
