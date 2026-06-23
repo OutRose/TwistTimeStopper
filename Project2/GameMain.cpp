@@ -3,8 +3,6 @@
 #include "GameSceneMain.h"
 
 //グローバル変数
-int game_status = GAMETITLE;
-
 int FrameStartTime;        // ６０ＦＰＳ固定用、時間保存用変数
 
 //入力状態 Input:押しっぱなし
