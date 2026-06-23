@@ -27,8 +27,6 @@
 #endif
 
 #define MENU_MAX_G 2
-SCENE_NO netMenu[MENU_MAX_G] = { SCENE_GAME1, SCENE_GAME2 };
-//本来→SCENE_NO menu[MENU_MAX] = { SCENE_GAME1, SCENE_GAME2, SCENE_GAME3 };
 char* menuList2[3] = { "挑む側","挑まれる側","" };
 //選択されたゲームを表すメニュー番号の初期化（menuの添え字）
 static int selectedGame2 = 0;
