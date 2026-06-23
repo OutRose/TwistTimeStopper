@@ -21,6 +21,15 @@ typedef enum _SCENE_NO {
 	SCENE_MAX			// シーン番号の上限。必ず書く
 } SCENE_NO;
 
+//Timer状態を管理する列挙体
+//Game1Scene/Game2Sceneの計測進行状態を共有する
+typedef enum _TIMER_STATUS {
+	TIMER_STATUS_INIT = 0,		// 目標時間と倍速値セット前 (初期化フェーズ)
+	TIMER_STATUS_READY,			// セット完了、スタート待ち
+	TIMER_STATUS_MEASURING,		// 計測中
+	TIMER_STATUS_DONE			// 計測完了、スコア加算OK
+} TIMER_STATUS;
+
 //シーンを変更する関数
 void changeScene(SCENE_NO no);
 

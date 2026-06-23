@@ -14,10 +14,8 @@ void targetTimeSet();
 float FrameTmp = 0.0;
 float ScMulti, Score = 0.0;
 
-//状態遷移マネージメント変数
-//0=目標時間と倍速値セット前、1=目標時間と倍速値セット完了、スタート待ち
-//2=計測中、3=計測完了、スコア加算OK（ここまでは仮）
-int status = 0;
+//状態遷移マネージメント変数 (詳細は GameSceneMain.h の TIMER_STATUS を参照)
+TIMER_STATUS status = TIMER_STATUS_INIT;
 
 //色変数セット
 unsigned int ColorWhite = GetColor(255, 255, 255);
@@ -32,7 +30,7 @@ unsigned int ColorSkyLike = GetColor(0, 255, 255);
 BOOL initGame1Scene(void)
 {
 	//入るときは必ずリセット
-	status = 0;
+	status = TIMER_STATUS_INIT;
 	return TRUE;
 }
 
@@ -52,7 +50,7 @@ void moveGame1Scene()
 {
 	switch (status)
 	{
-	case 0://ここではプレイヤーの入力を待つ
+	case TIMER_STATUS_INIT://ここではプレイヤーの入力を待つ
 		//タイマーを初期化
 		FrameTmp = 0.0;
 		Score = 0.0;
@@ -60,17 +58,17 @@ void moveGame1Scene()
 		//目標秒数、倍速値の設定関数を呼び出す。
 		//その後、ステータス番号を変更する
 		targetTimeSet();
-		status = 1;
+		status = TIMER_STATUS_READY;
 		break;
 
-	case 1:
+	case TIMER_STATUS_READY:
 
 		//Gキー（GO）で計測開始
 		if (CheckHitKey(KEY_INPUT_G) == 1)
 		{
-			if (status == 1)
+			if (status == TIMER_STATUS_READY)
 			{
-				status = 2;
+				status = TIMER_STATUS_MEASURING;
 			}
 		}
 
@@ -82,16 +80,16 @@ void moveGame1Scene()
 
 		break;
 
-	case 2://ここでは計測処理を行う
+	case TIMER_STATUS_MEASURING://ここでは計測処理を行う
 		//フレーム加算処理
 		FrameTmp += CalMulti;
 
 		//Sキー（STOP）で計測終了
 		if (CheckHitKey(KEY_INPUT_S) == 1)
 		{
-			if (status == 2)
+			if (status == TIMER_STATUS_MEASURING)
 			{
-				status = 3;
+				status = TIMER_STATUS_DONE;
 			}
 		}
 
@@ -103,7 +101,7 @@ void moveGame1Scene()
 
 		break;
 
-	case 3://計測が終了したあとの処理を行う
+	case TIMER_STATUS_DONE://計測が終了したあとの処理を行う
 		//スコアリング処理：目標秒フレームとスコア秒フレームを比較
 		if (CalFrame > FrameTmp)//目標より早いパターン
 		{
@@ -126,7 +124,7 @@ void moveGame1Scene()
 		//Rキーで状態リセット
 		if (CheckHitKey(KEY_INPUT_R) == 1)
 		{
-			status = 0;
+			status = TIMER_STATUS_INIT;
 		}
 
 		//Xキーでタイトルに戻す
@@ -143,7 +141,7 @@ void moveGame1Scene()
 void renderGame1Scene(void)
 {
 	//Rリセット可能であることを通知
-	if (status == 3)
+	if (status == TIMER_STATUS_DONE)
 	{
 		DrawString(30, 50, "Rキーでリセット", ColorWhite);
 	}
@@ -158,11 +156,11 @@ void renderGame1Scene(void)
 	//なお、%3.1f＝合計3桁、小数第1位以内で実数表示という意味
 	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", RandomTgt, CalFrame);
 	//計測終了までは倍速非公開
-	if (status != 3)
+	if (status != TIMER_STATUS_DONE)
 	{
 		DrawString(30, 250, "ただいま：？.？倍速", ColorYellow);
 	}
-	else if (status == 3)
+	else if (status == TIMER_STATUS_DONE)
 	{
 		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", CalMulti);
 	}
