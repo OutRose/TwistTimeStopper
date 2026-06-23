@@ -155,7 +155,7 @@ Input = i;                                        // 現状保持
 
 ## ネットワーク現状 (Game2Scene の netBattle)
 
-**未完成。完成させない方針** (下記「未完成機能」参照)。ただし現状の構造を把握するために要点を記載:
+**未完成。完成目標** (詳細は[未完成機能の方針](#未完成機能の方針) 参照)。現状の構造の要点:
 
 - **プロトコル**: TCP (`SOCK_STREAM`, `IPPROTO_TCP`)、ポート **3500**
 - **接続先**: `"localhost"` ハードコード ([Project2/Game2Scene.cpp:169](Project2/Game2Scene.cpp#L169))
@@ -164,6 +164,15 @@ Input = i;                                        // 現状保持
   - `sideSelect = 0`: クライアント (`socket` → `connect` → `send`)
   - `sideSelect = 1`: サーバー (`socket` → `bind` → `listen` → `accept` → `recv`)
 - **既知バグ**: クライアント側の `case 0` で `remS` (未初期化) を `send` 引数に渡している。本来は送信用 socket `s` を渡すべき。実行すると失敗するが、警告は SOCKET 変数の `INVALID_SOCKET` 初期化で抑止済み。
+
+**完成目標**: LAN ネットワーク対戦は Game2Scene の最低動作要件として完成させる方針 (= プレイヤーが Game2 に入って遊べる最小条件)。現状は入場直後から実質操作不能 — `SIDE_SELECT` メニューに UI が無いため `EdgeInput & PAD_INPUT_1` を立たせる契機を得ず、Z キー押下エッジ取りこぼし問題と相まってメニューから脱出できない (2026-06-23 実機確認、master でも再現)。少なくとも以下が必要:
+
+- `SIDE_SELECT` メニュー UI の実装 ([renderGame2Scene の TODO](Project2/Game2Scene.cpp#L392) を解消、MenuScene 流の選択肢描画を追加)
+- 既知バグ修正: `remS` 未初期化、`while (szBuf != NULL)` 無限ループ条件、`netStatus` 書き込み欠落 (受信成立後の状態遷移なし)、`bind`/`connect`/`socket`/`accept` 等の戻り値未チェック
+- WinSock リソース管理整理 (`WSAStartup`/`WSACleanup` のペアリング、`closesocket` 漏れ)
+- プロトコル整備 (任意): 切断キーワード、再接続、エラー時の cleanup
+
+進め方は[リファクタリング戦略](#リファクタリング戦略) の **フェーズ γ** 参照。
 
 ---
 
@@ -214,13 +223,17 @@ default: break;  // ← 追加
 
 ---
 
-## 未完成機能 — **完成させなくて良い**
+## 未完成機能の方針
 
-過去の方針: 「未完成機能の完成は不要、プレースホルダ/コメントで OK」。以下は触らない:
+完成させるかどうかをカテゴリ別に明示:
 
-- `netBattle` のネットワーク同期 (Game2Scene.cpp) — 上述の `remS` バグ含めて触らない
-- Game3Scene の中身全般 ([Project2/Game3Scene.cpp](Project2/Game3Scene.cpp))
-- メニュー第 3 項目 (`SCENE_GAME3`)
+**完成目標 (= Game2Scene の最低動作要件)**:
+- `netBattle` のネットワーク同期 (Game2Scene.cpp) — 既知バグ修正含む。[ネットワーク現状](#ネットワーク現状-game2scene-の-netbattle) 参照
+- `SIDE_SELECT` メニュー UI ([Project2/Game2Scene.cpp:392](Project2/Game2Scene.cpp#L392) の TODO 解消)
+
+**予備 (現時点では触らない、必要になれば対応)**:
+- `Game3Scene` ([Project2/Game3Scene.cpp](Project2/Game3Scene.cpp)) — **予備の空シーン (雛形)**。シーン追加時はこれをコピーして `Game4Scene` / `Game5Scene` … として増やし、[GameSceneMain.h](Project2/GameSceneMain.h) の `SCENE_NO` enum と [GameSceneMain.cpp](Project2/GameSceneMain.cpp) のディスパッチ、必要なら [MenuScene.cpp](Project2/MenuScene.cpp) の `menu` 配列にも追記する方針
+- メニュー第 3 項目 (`SCENE_GAME3` を menu に載せる件) — Game3 が空シーン雛形である以上、メニューにも載せない
 
 ---
 
@@ -261,13 +274,32 @@ default: break;  // ← 追加
 
 [コメント方針](#コメント方針) により、役割メモは保護対象。番号付きコメント・自明な訳・教科書的説明も「学習由来の役割メモ」として残す。観点7 のうち削減してよいのは dead code 系コメントアウトのみ (これは β-A で既に処理済み)。
 
-### フェーズ β-C: 状態値の enum 化 (次着手予定)
+### フェーズ β-C: 状態値の enum 化 (進行中, 2026-06-23 開始)
 
-`status` (Game1Scene)、`status2` / `sideSelect` / `netStatus` (Game2Scene) のマジックナンバー (0/1/2/3/4) を enum 化。複数ファイルを跨ぐ中リスク作業のため、サブ項目ごとにプランモードで対象を絞って実施予定。
+`status` (Game1Scene)、`status2` / `sideSelect` / `netStatus` (Game2Scene) のマジックナンバー (0/1/2/3/4) を enum 化。複数ファイルを跨ぐ中リスク作業のため、サブ項目ごとにプランモードで対象を絞って実施。
 
-### フェーズ β-D 以降: 中〜高リスク群
+**完了**:
+1. **β-C-1**: [GameSceneMain.h](Project2/GameSceneMain.h) に共通 `TIMER_STATUS` enum (4 値: INIT/READY/MEASURING/DONE) を新設、[Game1Scene.cpp](Project2/Game1Scene.cpp) の `status` を全置換 (14 箇所)
+2. **β-C-2**: [Game2Scene.cpp](Project2/Game2Scene.cpp) 内に Game2 専用 `GAME2_STATE` enum (5 値: INIT/READY/MEASURING/DONE + SIDE_SELECT) を新設、`status2` を全置換 (18 箇所)。SIDE_SELECT が Game1 に無い概念のため、TIMER_STATUS を汚さず別型として定義 (値域 0-3 は意図的にミラー)
 
-診断で残ったテーマ (Game1/2Scene のサフィックス `2` 重複解消・共通基盤化、`netBattle` の分離とバグ修正、エラーハンドリング強化、シーンディスパッチャの共通化、マジックナンバー定数化 等) を順次対応予定。
+**未着手**:
+- **β-C-3**: `sideSelect` (Game2、0=送信側/1=受信側/2=未選択) の enum 化
+- **β-C-4**: `netStatus` (Game2、0=初期/1=待機/2=受信完了) の enum 化 — ただし現状 `netStatus = 2` への遷移経路が無いため、フェーズγ (ネット対戦完成) と連動
+
+### フェーズ β-D 以降: 中〜高リスク群 (構造系)
+
+診断で残った構造系テーマ (Game1/2Scene のサフィックス `2` 重複解消・共通基盤化、シーンディスパッチャの共通化、エラーハンドリング強化、マジックナンバー定数化 等) を順次対応予定。
+
+### フェーズ γ: LAN ネットワーク対戦の完成
+
+[未完成機能の方針](#未完成機能の方針) で「完成目標」と位置づけた `netBattle` と `SIDE_SELECT` メニュー UI を仕上げる。これが Game2Scene の最低動作要件 — 現状は入場直後から実質操作不能 (UI 未表示 + Z キーエッジ取りこぼしの二重原因)。スコープ:
+
+- `SIDE_SELECT` メニュー UI (`renderGame2Scene` 内に MenuScene 流の選択肢描画)
+- `netBattle` 既知バグ群修正 (`remS` 未初期化、無限ループ条件、`netStatus` 遷移欠落、戻り値未チェック)
+- WinSock リソース管理整理 (`WSAStartup`/`WSACleanup` のペアリング、`closesocket` 漏れ)
+- β-C-4 (`netStatus` enum 化) と連動
+
+着手タイミングは **β-D 完了後** を想定 (構造改善 → ネット対戦完成の順)。ただしユーザー判断で前倒し可能。
 
 ---
 
