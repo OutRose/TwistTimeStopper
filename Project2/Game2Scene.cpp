@@ -120,7 +120,6 @@ int netBattle(float score)
 	nRet = 1;
 	int nLen, cnt = 1;
 	char        szBuf[256];
-	//char		rcScore[256];	//受け取ったスコアを格納する
 	SOCKET      lisS = INVALID_SOCKET, remS = INVALID_SOCKET;
 	SOCKADDR_IN saSv;
 	//ソケット定義
