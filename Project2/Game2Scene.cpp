@@ -33,9 +33,6 @@ char* menuList2[3] = { "挑む側","挑まれる側","" };
 //選択されたゲームを表すメニュー番号の初期化（menuの添え字）
 static int selectedGame2 = 0;
 
-int startfont2;
-
-
 //外部定義(GameMain.cppにて宣言)+変数シードに使ったミリ秒データ
 extern int Input, EdgeInput, rdSeed;
 
