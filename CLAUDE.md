@@ -220,6 +220,28 @@ default: break;  // ← 追加
 
 ---
 
+## リファクタリング戦略
+
+2026-06-23 から Claude Code (ultracode) を併用して段階的にコード品質を改善中。同日に 10 観点 (重複/命名/未使用コード/長関数/深ネスト/マジック数/コメント/エラー処理/責務/プラットフォーム依存) で網羅診断を実施し、確定 210 件の改善余地を特定。低リスク → 高リスクの順にフェーズ分けして適用。
+
+各項目は **プランモードで対象提示 → ユーザー承認 → Edit → grep 検証** のミニサイクルで実施。コミットはユーザーが手動で行う ([Git 慣習](#git-慣習) 既定)。
+
+### フェーズ α: 未使用コード一掃 (完了, 2026-06-23)
+
+参照が 0 件であることを grep 確認済みの単発シンボル/コメントを削除。完了 5 項目:
+
+1. [MenuScene.cpp](Project2/MenuScene.cpp) — 未使用変数 `int startfont;` 削除
+2. [Game2Scene.cpp](Project2/Game2Scene.cpp) — 未使用変数 `int startfont2;` 削除
+3. [Game2Scene.cpp](Project2/Game2Scene.cpp) — 未使用配列 `SCENE_NO netMenu[MENU_MAX_G] = {…};` 削除 (`MENU_MAX_G` は case 4 のメニュー境界チェックで使用継続のため維持)
+4. [Game2Scene.cpp](Project2/Game2Scene.cpp) — 旧コードコメント `//本来→SCENE_NO menu[MENU_MAX] = {…, SCENE_GAME3};` 削除 (Game2 ファイル内に置かれていた MenuScene 側 `menu[]` の残骸)
+5. 上記各削除に伴う隣接の余分な空行整理 (ブロック区切りを 1 行空きに統一)
+
+### フェーズ β 以降: 未着手
+
+診断で残ったテーマ (Game1/2Scene のサフィックス `2` 重複解消・共通基盤化、`status`/`sideSelect`/`netStatus` の enum 化、`netBattle` の分離とバグ修正、エラーハンドリング強化、シーンディスパッチャの共通化、マジックナンバー定数化、過剰コメント整理 等) を順次対応予定。
+
+---
+
 ## 過去の整理作業履歴
 
 完了済みの方針判断 (再議論不要):
