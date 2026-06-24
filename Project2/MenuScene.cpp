@@ -2,11 +2,11 @@
 #include "GameSceneMain.h"
 #include "MenuScene.h"
 
-//メニュー項目のシーン番号の配列
-#define MENU_MAX 2
-SCENE_NO menu[MENU_MAX] = { SCENE_GAME1, SCENE_GAME2 };
-//本来→SCENE_NO menu[MENU_MAX] = { SCENE_GAME1, SCENE_GAME2, SCENE_GAME3 };
-char* menuList[3] = { "ゲームスタート","ネットワークバトル","" };
+//メニュー項目のシーン番号の配列 (γ-1 で Game3 = 練習モード本体に転用、menuList[3] の予約枠を活用)
+//Game4 は空シーン雛形のため menu[] には含めない (= ユーザーから到達不可、コピー元としてのみ存在)
+#define MENU_MAX 3
+SCENE_NO menu[MENU_MAX] = { SCENE_GAME1, SCENE_GAME2, SCENE_GAME3 };
+char* menuList[3] = { "ゲームスタート","ネットワークバトル","練習モード" };
 //選択されたゲームを表すメニュー番号の初期化（menuの添え字）
 static int selectedGame = 0;
 
@@ -15,7 +15,7 @@ extern int Input, EdgeInput;
 
 //シーン開始前の初期化を行う
 BOOL initMenuScene(void) {
-	SetFontSize(32);
+	SetFontSize(FONT_SIZE_DEFAULT);
 	ChangeFontType(DX_FONTTYPE_ANTIALIASING_EDGE_8X8);
 
 	selectedGame = 0;
@@ -52,20 +52,20 @@ void moveMenuScene() {
 
 //レンダリング処理
 void renderMenuScene(void) {
-	DrawString(85, 50, "ねじれストップウォッチ（仮）", GetColor(255, 255, 255));
-	DrawString(215, 100, "Version 0.6", GetColor(255, 255, 255));
-	DrawString(85, 400, "Zキーで決定、ESCキーで終了", GetColor(255, 255, 255));
+	DrawString(MENU_X_TITLE, MENU_Y_TITLE, "ねじれストップウォッチ（仮）", ColorWhite);
+	DrawString(MENU_X_VERSION, MENU_Y_VERSION, "Version 0.6", ColorWhite);
+	DrawString(MENU_X_HINT, MENU_Y_HINT, "Zキーで決定、ESCキーで終了", ColorWhite);
 
 	//６(2) メニュー項目の表示
-	int x = 195, y = 200, gapY = 80;	//（x,y)：表示開始座標　gapY：行の高さ
+	int x = 195, y = 200, gapY = 60;	//（x,y)：表示開始座標　gapY：行の高さ (3 項目目 y=320、MENU_Y_HINT=400 と 80px 差で視認性確保)
 	for (int i = 0; i < MENU_MAX; i++, y += gapY) {
 		//６(2) ①選択された項目の表示
 		if (i == selectedGame) {
-			DrawString(x, y, menuList[i], GetColor(255, 0, 0));
+			DrawString(x, y, menuList[i], ColorRed);
 			//６(2) ②選択されていない項目の表示
 		}
 		else {
-			DrawString(x, y, menuList[i], GetColor(255, 255, 255));
+			DrawString(x, y, menuList[i], ColorWhite);
 		}
 	}
 }

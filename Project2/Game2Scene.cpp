@@ -3,28 +3,11 @@
 #include "Game2Scene.h"
 #include <math.h>
 #include <string.h>
-
-#include <stdio.h>
-#include <Windows.h>
-#include <tchar.h>
 #include <winsock.h>
 #pragma comment(lib, "wsock32.lib")
 #define _CRT_SECURE_NO_WARNINGS
 
-//デバッグ文字列出力マクロ
-//使用方法：
-//MyOutputDebugString(_T"出力したい文字 %s", 指定する対応変数);
-//※_Tは変数を混ぜたい場合にのみ使用する
-#ifdef _DEBUG
-#   define MyOutputDebugString( str, ... ) \
-      { \
-        TCHAR c[256]; \
-        _stprintf( c, str, __VA_ARGS__ ); \
-        OutputDebugString( c ); \
-      }
-#else
-#    define MyOutputDebugString( str, ... ) // 空実装
-#endif
+//MyOutputDebugString マクロは GameMain.h に昇格済み (Game2Scene 専用ではなくなったため)
 
 #define MENU_MAX_G 2
 char* menuList2[3] = { "挑む側","挑まれる側","" };
@@ -34,66 +17,53 @@ static int selectedGame2 = 0;
 //外部定義(GameMain.cppにて宣言)+変数シードに使ったミリ秒データ
 extern int Input, EdgeInput, rdSeed;
 
-//乱数用変数を宣言：INT型は目標時間。FLOAT型は倍速値
-float RandomTgt2, CalFrame2;
-float RandomMtp2, CalMulti2;
-void targetTimeSet2();
-//ネットワーク対戦用の関数も追加する
+//計測状態をまとめた構造体 (詳細は GameSceneMain.h の TIMER_STATE)
+//static でファイルスコープに限定 (Game1/Game2 の state は別物として独立させる)
+static TIMER_STATE state = {};
+//ネットワーク対戦用の関数プロトタイプ
 int netBattle(float score);
-
-//計測用変数、記録用変数を宣言
-float FrameTmp2 = 0.0;
-float ScMulti2, Score2 = 0.0;
 
 //受信したスコアを格納する変数
 char rcScore[256];
 
-//状態遷移マネージメント変数
-//0=目標時間と倍速値セット前、1=目標時間と倍速値セット完了、スタート待ち
-//2=計測中、3=計測完了、スコア加算OK（ここまでは仮）
-//4=ネット対戦の送受信を選ばせる
-int status2 = 4;
+//状態遷移マネージメント変数 (詳細は下記 GAME2_STATE enum 参照)
+//0-3 は Game1Scene.cpp の TIMER_STATUS とミラー、4 は Game2 専用 SIDE_SELECT
+//TIMER_STATUS を共有 enum として汚さないため別型として定義している
+typedef enum _GAME2_STATE {
+	GAME2_STATE_INIT = 0,			// 目標時間と倍速値セット前 (TIMER_STATUS_INIT 相当)
+	GAME2_STATE_READY,				// セット完了、スタート待ち (TIMER_STATUS_READY 相当)
+	GAME2_STATE_MEASURING,			// 計測中 (TIMER_STATUS_MEASURING 相当)
+	GAME2_STATE_DONE,				// 計測完了、スコア加算OK (TIMER_STATUS_DONE 相当)
+	GAME2_STATE_SIDE_SELECT			// Game2 専用: ネット対戦の送受信側を選ぶメニュー
+} GAME2_STATE;
+
+GAME2_STATE status2 = GAME2_STATE_SIDE_SELECT;
 //ネットワーク対戦用のステータス変数
 //0=初期状態、1=接続待機モード、2=受信側モード？
 int netStatus = 0;
-//あなたは挑まれるのか、挑むのか（受信か、送信か）
-//0=挑む側(先に送信するクライアント)、1=挑まれる側（受信するサーバー）
-//2=未選択状態
-int sideSelect = 2;
+//ネットワーク対戦の役割 (Game2 専用、詳細は下記 NET_SIDE enum 参照)
+//現状は Game2Scene 内のみで使用、将来別シーンで再利用する場合は GameSceneMain.h へ昇格を検討
+typedef enum _NET_SIDE {
+	NET_SIDE_CHALLENGER = 0,		// 挑む側 (先に送信するクライアント、socket→connect→send)
+	NET_SIDE_DEFENDER = 1,			// 挑まれる側 (受信するサーバー、socket→bind→listen→accept→recv)
+	NET_SIDE_UNSELECTED = 2			// 未選択 (シーン入場直後の初期状態)
+} NET_SIDE;
 
-//色変数セット
-unsigned int ColorWhite2 = GetColor(255, 255, 255);
-unsigned int ColorRed2 = GetColor(255, 0, 0);
-unsigned int ColorGreen2 = GetColor(0, 255, 0);
-unsigned int ColorBlue2 = GetColor(0, 0, 255);
-unsigned int ColorYellow2 = GetColor(255, 255, 0);
-unsigned int ColorPurple2 = GetColor(255, 0, 255);
-unsigned int ColorSkyLike2 = GetColor(0, 255, 255);
+NET_SIDE sideSelect = NET_SIDE_UNSELECTED;
 
 // シーン開始前の初期化を行う
 BOOL initGame2Scene(void)
 {
 	//入るときは必ずリセット
-	status2 = 4;
+	status2 = GAME2_STATE_SIDE_SELECT;
 
 	//メニュー関係の初期化
-	SetFontSize(32);
+	SetFontSize(FONT_SIZE_DEFAULT);
 	ChangeFontType(DX_FONTTYPE_ANTIALIASING_EDGE_8X8);
 
 	selectedGame2 = 0;
 
 	return TRUE;
-}
-
-void targetTimeSet2()
-{
-	//目標時間をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomTgt2 = (float)(GetRand(19) + 1);
-	CalFrame2 = RandomTgt2 * 60;
-
-	//倍速値をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomMtp2 = (float)(GetRand(39) + 10);
-	CalMulti2 = RandomMtp2 / 10;
 }
 
 //ネットワーク対戦部分：TCPを応用した通信を行う
@@ -120,7 +90,6 @@ int netBattle(float score)
 	nRet = 1;
 	int nLen, cnt = 1;
 	char        szBuf[256];
-	//char		rcScore[256];	//受け取ったスコアを格納する
 	SOCKET      lisS = INVALID_SOCKET, remS = INVALID_SOCKET;
 	SOCKADDR_IN saSv;
 	//ソケット定義
@@ -150,7 +119,7 @@ int netBattle(float score)
 	switch (sideSelect)
 	{
 		//こちらが送信側の場合
-		case 0: {
+		case NET_SIDE_CHALLENGER: {
 			//相手プログラムとの接続処理を行う
 			LPHOSTENT	lpHostEntry;
 			SOCKET		s;
@@ -180,7 +149,7 @@ int netBattle(float score)
 			//メモ：浮動小数点から文字列に変換する関数
 			//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
 			//この関数で、ここでは自分のスコアを変換し書き込む
-			snprintf(szBuf, 256, "%f", Score2);
+			snprintf(szBuf, 256, "%f", state.Score);
 
 			//送信する
 			nRet = send(remS, szBuf, strlen(szBuf), 0);
@@ -188,7 +157,7 @@ int netBattle(float score)
 			break;
 		}
 		//こちらが受信側の場合
-		case 1: {
+		case NET_SIDE_DEFENDER: {
 			//Connect要求が来るまで待機
 			nRet = listen(lisS, SOMAXCONN);
 			MyOutputDebugString("接続待機状態に入ります…");
@@ -229,7 +198,7 @@ int netBattle(float score)
 				//メモ：浮動小数点から文字列に変換する関数
 				//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
 				//この関数で、ここでは自分のスコアを変換し書き込む
-				snprintf(szBuf, 256, "%f", Score2);
+				snprintf(szBuf, 256, "%f", state.Score);
 
 				//送信する
 				nRet = send(remS, szBuf, strlen(szBuf), 0);
@@ -251,25 +220,25 @@ void moveGame2Scene()
 {
 	switch (status2)
 	{
-	case 0://ここではプレイヤーの入力を待つ
+	case GAME2_STATE_INIT://ここではプレイヤーの入力を待つ
 		//タイマーを初期化
-		FrameTmp2 = 0.0;
-		Score2 = 0.0;
+		state.FrameTmp = 0.0;
+		state.Score = 0.0;
 		
 		//目標秒数、倍速値の設定関数を呼び出す。
 		//その後、ステータス番号を変更する
-		targetTimeSet2();
-		status2 = 1;
+		timerReset(&state);
+		status2 = GAME2_STATE_READY;
 		break;
 
-	case 1:
+	case GAME2_STATE_READY:
 
 		//Gキー（GO）で計測開始
 		if (CheckHitKey(KEY_INPUT_G) == 1)
 		{
-			if (status2 == 1)
+			if (status2 == GAME2_STATE_READY)
 			{
-				status2 = 2;
+				status2 = GAME2_STATE_MEASURING;
 			}
 		}
 
@@ -281,16 +250,16 @@ void moveGame2Scene()
 
 		break;
 
-	case 2://ここでは計測処理を行う
+	case GAME2_STATE_MEASURING://ここでは計測処理を行う
 		//フレーム加算処理
-		FrameTmp2 += CalMulti2;
+		state.FrameTmp += state.CalMulti;
 
 		//Sキー（STOP）で計測終了
 		if (CheckHitKey(KEY_INPUT_S) == 1)
 		{
-			if (status2 == 2)
+			if (status2 == GAME2_STATE_MEASURING)
 			{
-				status2 = 3;
+				status2 = GAME2_STATE_DONE;
 			}
 		}
 
@@ -302,30 +271,14 @@ void moveGame2Scene()
 
 		break;
 
-	case 3://計測が終了したあとの処理を行う
-		//スコアリング処理：目標秒フレームとスコア秒フレームを比較
-		if (CalFrame2 > FrameTmp2)//目標より早いパターン
-		{
-			//誤差が増すほどスコアから多く引かれる
-			ScMulti2 = FrameTmp2 - CalFrame2;
-			Score2 = CalFrame2 - (-ScMulti2);
-		}
-		else if (CalFrame2 < FrameTmp2)//目標より遅いパターン
-		{
-			//誤差が増すほどスコアから多く引かれる
-			ScMulti2 = CalFrame2 - FrameTmp2;
-			Score2 = CalFrame2 - (-ScMulti2);
-		}
-		else if (CalFrame2 == FrameTmp2)//目標ピッタリ！？
-		{
-			//フレーム単位で合わせるとは油断ならぬ。ボーナス！
-			Score2 = CalFrame2 * 1.25f;
-		}
+	case GAME2_STATE_DONE://計測が終了したあとの処理を行う
+		//スコア計算 (共通関数、目標との差分から算出)
+		timerCalcScore(&state);
 
 		//Rキーで状態リセット
 		if (CheckHitKey(KEY_INPUT_R) == 1)
 		{
-			status2 = 0;
+			status2 = GAME2_STATE_INIT;
 		}
 
 		//Xキーでタイトルに戻す
@@ -338,12 +291,12 @@ void moveGame2Scene()
 		if (CheckHitKey(KEY_INPUT_N) == 1)
 		{
 			//自分のスコアを送信する
-			netBattle(Score2);
+			netBattle(state.Score);
 		}
 
 		break;
 
-	case 4:		//まず送信者か、受信者かを選択してもらう
+	case GAME2_STATE_SIDE_SELECT:		//まず送信者か、受信者かを選択してもらう
 		//７メニュー項目の選択
 		//７(1) ①新たに↑が押されたら、
 		if ((EdgeInput & PAD_INPUT_UP)) 
@@ -372,11 +325,11 @@ void moveGame2Scene()
 		{
 			//0が選ばれたら送信者、1が選ばれたら受信者
 			//この後、ステータスをゲーム本編に移す
-			if (selectedGame2 == 0)sideSelect = 0;
-			else if (selectedGame2 == 1)sideSelect = 1;
-			status2 = 0;
+			if (selectedGame2 == 0)sideSelect = NET_SIDE_CHALLENGER;
+			else if (selectedGame2 == 1)sideSelect = NET_SIDE_DEFENDER;
+			status2 = GAME2_STATE_INIT;
 		}
-		if(sideSelect != 2)break;
+		if(sideSelect != NET_SIDE_UNSELECTED)break;
 	}
 }
 
@@ -387,13 +340,13 @@ void renderGame2Scene(void)
 	// TODO: switch (sideSelect) で送信側/受信側の描き分けを実装
 	
 	//Rリセット可能であることを通知
-	if (status2 == 3)
+	if (status2 == GAME2_STATE_DONE)
 	{
-		DrawString(30, 50, "Rキーでリセット、Nキーでネット対戦", ColorWhite2);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Rキーでリセット、Nキーでネット対戦", ColorWhite);
 	}
 	else
 	{
-		DrawString(30, 50, "Gキーで開始、Sキーで停止", ColorWhite2);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Gキーで開始、Sキーで停止", ColorWhite);
 	}
 
 	//ネット対戦を終えた場合：勝敗を判断し、表示する
@@ -403,48 +356,48 @@ void renderGame2Scene(void)
 		float scJudge = strtof(rcScore, NULL);
 
 		scJudge = floorf(scJudge);
-		float Score2J = floorf(Score2);
+		float Score2J = floorf(state.Score);
 
 		//自分のスコアより少ない場合
 		if (scJudge < Score2J)
 		{
-			DrawString(30, 50, "あなたの勝利です！", ColorSkyLike2);
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "あなたの勝利です！", ColorSkyLike);
 		}
 		//同じ場合
 		else if (scJudge == Score2J)
 		{
-			DrawString(30, 50, "なんと…引き分け！", ColorYellow2);
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "なんと…引き分け！", ColorYellow);
 		}
 		//自分のスコアより多い場合
 		else if (scJudge > Score2J)
 		{
-			DrawString(30, 50, "あなたの敗北です…", ColorBlue2);
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "あなたの敗北です…", ColorBlue);
 		}
 	}
 
-	DrawString(30, 100, "Xボタンでタイトルに戻る", ColorWhite2);
+	DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_BACK_TO_TITLE, "Xボタンでタイトルに戻る", ColorWhite);
 
 	//表示形式についてメモ：INTは整数型%dで問題なし。FLOATは実数型%fを使用
 	//なお、%3.1f＝合計3桁、小数第1位以内で実数表示という意味
-	DrawFormatString(30, 200, ColorWhite2, "%3.1f秒でストップ！", RandomTgt2, CalFrame2);
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_TARGET, ColorWhite, "%3.1f秒でストップ！", state.RandomTgt, state.CalFrame);
 	//計測終了までは倍速非公開
-	if (status2 != 3)
+	if (status2 != GAME2_STATE_DONE)
 	{
-		DrawString(30, 250, "ただいま：？.？倍速", ColorYellow2);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, "ただいま：？.？倍速", ColorYellow);
 	}
-	else if (status2 == 3)
+	else if (status2 == GAME2_STATE_DONE)
 	{
-		DrawFormatString(30, 250, ColorYellow2, "ただいま：%3.1f倍速", CalMulti2);
+		DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
 		//ネット上でのスコア交換が終わったならば、相手のスコアに表示を変える
 		if (netStatus == 2)
 		{
-			DrawFormatString(30, 250, ColorRed2, "相手のスコアは%s", rcScore);
+			DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorRed, "相手のスコアは%s", rcScore);
 		}
 	}
 
-	//フレーム値は÷60して表示すること！
-	DrawFormatString(30, 350, ColorGreen2, "現在の時間：%3.2f秒", FrameTmp2 / 60);
-	DrawFormatString(30, 400, ColorSkyLike2, "スコア：%3.1f点", Score2);
+	//フレーム値は÷FPS して表示する (FrameTmp は CalMulti 加算済みの累積フレーム)
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_CURRENT_TIME, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / FPS);
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SCORE, ColorSkyLike, "スコア：%3.1f点", state.Score);
 }
 
 //	シーン終了時の後処理

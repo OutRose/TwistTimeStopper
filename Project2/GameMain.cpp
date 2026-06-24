@@ -3,8 +3,6 @@
 #include "GameSceneMain.h"
 
 //グローバル変数
-int game_status = GAMETITLE;
-
 int FrameStartTime;        // ６０ＦＰＳ固定用、時間保存用変数
 
 //入力状態 Input:押しっぱなし
@@ -15,6 +13,15 @@ int EdgeInput;
 //乱数の初期化：起動ごとに変更される
 int rdSeed = GetNowCount();
 
+//色変数 (全シーン共通、GetColor は static init で値計算可能、DxLib_Init 前でも問題なし)
+unsigned int ColorWhite   = GetColor(255, 255, 255);
+unsigned int ColorRed     = GetColor(255,   0,   0);
+unsigned int ColorGreen   = GetColor(  0, 255,   0);
+unsigned int ColorBlue    = GetColor(  0,   0, 255);
+unsigned int ColorYellow  = GetColor(255, 255,   0);
+unsigned int ColorPurple  = GetColor(255,   0, 255);
+unsigned int ColorSkyLike = GetColor(  0, 255, 255);
+
 //WinMain関数
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 	//実行ログを出力しない
@@ -24,15 +31,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//ウィンドウモードの設定 false:全画面設定
 	ChangeWindowMode(true);
 
-	/*
-	// ウインドウモードで起動するか確認する
-	if (MessageBox(NULL, "ウインドウモードで起動しますか？", "画面モード確認", MB_YESNO) == IDYES)
-	{
-	// ウインドウモードで起動
-	ChangeWindowMode(TRUE);
-	}
-	*/
-
 	//ウィンドウのリサイズ
 	//Check:実行中に画面の大きさが変更可能か
 	SetWindowSizeChangeEnableFlag(true);
@@ -40,14 +38,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	SetMainWindowText("TwistTime-Stopper 0.6");
 
 	//解像度変更：24ビットカラー
-	SetGraphMode(800, 700, 24);
+	SetGraphMode(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_BPP);
 
 	//背景色の設定
 	SetBackgroundColor(0, 0, 0);
 	//DXライブラリ初期化処理
 	//check:-1(例外処理)が来た場合は、セットアップに失敗する
 	//パソコン本体の機器の確認をしてもらう(音声デバイスがない等。)
-	if (DxLib_Init() == -1)return -1;
+	if (DxLib_Init() == -1) {
+		//デバッグ視認性向上 (Release は空展開、戻り値挙動は不変)
+		MyOutputDebugString(_T("DxLib_Init failed (-1 returned). Check audio device etc.\n"));
+		return -1;
+	}
 
 	//描画先を一番後ろにする
 	SetDrawScreen(DX_SCREEN_BACK);
@@ -67,7 +69,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		ClearDrawScreen();
 
 		// １/６０秒立つまで待つ
-		while (GetNowCount() - FrameStartTime < 1000 / 60) {}
+		while (GetNowCount() - FrameStartTime < MS_PER_SEC / FPS) {}
 		// 現在のカウント値を保存
 		FrameStartTime = GetNowCount();
 		// 入力状態を更新
