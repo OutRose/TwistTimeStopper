@@ -17,7 +17,8 @@ typedef enum _SCENE_NO {
 	SCENE_MENU,			// メニューシーンの番号
 	SCENE_GAME1,		// ゲーム１シーンの番号
 	SCENE_GAME2,		// ゲーム２シーンの番号
-	SCENE_GAME3,		// ゲーム３シーンの番号
+	SCENE_GAME3,		// ゲーム３シーン (練習モード本体、シングルプレイ、リアルタイム倍率/スコア表示)
+	SCENE_GAME4,		// ゲーム４シーン (空シーン雛形、メニュー非掲載、将来 Game5/6 追加時のコピー元)
 	SCENE_MAX			// シーン番号の上限。必ず書く
 } SCENE_NO;
 

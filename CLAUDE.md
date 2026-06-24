@@ -78,7 +78,7 @@ ScreenFlip();            // 5. 表示反映
 
 ### enum とグローバル状態
 
-[Project2/GameSceneMain.h](Project2/GameSceneMain.h) で `SCENE_NO` enum を定義: `SCENE_NONE (-1)`, `SCENE_MENU`, `SCENE_GAME1`, `SCENE_GAME2`, `SCENE_GAME3`, `SCENE_MAX`。
+[Project2/GameSceneMain.h](Project2/GameSceneMain.h) で `SCENE_NO` enum を定義: `SCENE_NONE (-1)`, `SCENE_MENU`, `SCENE_GAME1`, `SCENE_GAME2`, `SCENE_GAME3` (練習モード), `SCENE_GAME4` (空シーン雛形、メニュー非掲載)、`SCENE_MAX`。
 [Project2/GameSceneMain.cpp](Project2/GameSceneMain.cpp) で `static SCENE_NO sceneNo, prevScene, nextScene` を管理。
 
 ### 4 関数命名規約 (シーンごとに必須)
@@ -118,10 +118,11 @@ ScreenFlip();            // 5. 表示反映
 | Game1Scene.h | `GAMESCENE1_H_` |
 | Game2Scene.h | `GAMESCENE2_H_` |
 | Game3Scene.h | `GAMESCENE3_H_` |
+| Game4Scene.h | `GAMESCENE4_H_` |
 | GameStatus.h | `GAMESTATUS_H_` |
 | GameSceneMain.h | `GAMESCENEMAIN_H_` |
 
-Game1/2/3Scene は **`GAMESCENE<N>_H_`** (数字は GAMESCENE の後)。`GAME<N>SCENE_H_` ではないので注意。
+Game1/2/3/4Scene は **`GAMESCENE<N>_H_`** (数字は GAMESCENE の後)。`GAME<N>SCENE_H_` ではないので注意。
 
 ### インデント
 
@@ -249,9 +250,11 @@ default: break;  // ← 追加
 - `netBattle` のネットワーク同期 (Game2Scene.cpp) — 既知バグ修正含む。[ネットワーク現状](#ネットワーク現状-game2scene-の-netbattle) 参照
 - `SIDE_SELECT` メニュー UI ([Project2/Game2Scene.cpp:392](Project2/Game2Scene.cpp#L392) の TODO 解消)
 
-**予備 (現時点では触らない、必要になれば対応)**:
-- `Game3Scene` ([Project2/Game3Scene.cpp](Project2/Game3Scene.cpp)) — **予備の空シーン (雛形)**。シーン追加時はこれをコピーして `Game4Scene` / `Game5Scene` … として増やし、[GameSceneMain.h](Project2/GameSceneMain.h) の `SCENE_NO` enum と [GameSceneMain.cpp](Project2/GameSceneMain.cpp) のディスパッチ、必要なら [MenuScene.cpp](Project2/MenuScene.cpp) の `menu` 配列にも追記する方針
-- メニュー第 3 項目 (`SCENE_GAME3` を menu に載せる件) — Game3 が空シーン雛形である以上、メニューにも載せない
+**完成済み (γ-1, 2026-06-24)**:
+- `Game3Scene` ([Project2/Game3Scene.cpp](Project2/Game3Scene.cpp)) — **練習モード本体** (シングルプレイ、Game1Scene と違って速度倍率とリアルタイムスコアを公開、学習用)。MenuScene の menu[] 第 3 項目として登録、Z キーで決定して入場。リアルタイムスコアは `TIMER_STATE tmp = state; timerCalcScore(&tmp);` のコピー方式で副作用回避
+
+**空シーン雛形 (シーン追加時のコピー元)**:
+- `Game4Scene` ([Project2/Game4Scene.cpp](Project2/Game4Scene.cpp)) — **新しい空シーン雛形** (現 Game3 の役目をスライド)。SCENE_NO/sceneTable に登録だが menu[] には含めない (= ユーザーから到達不可)。将来 Game5/6 を増やす時はこれをコピーして識別子置換 + [GameSceneMain.h](Project2/GameSceneMain.h) の `SCENE_NO` enum + [GameSceneMain.cpp](Project2/GameSceneMain.cpp) の sceneTable + [Project2.vcxproj](Project2/Project2.vcxproj) の ClCompile/ClInclude + 必要なら [MenuScene.cpp](Project2/MenuScene.cpp) の `menu` 配列にも追記する方針
 
 ---
 
@@ -315,6 +318,16 @@ default: break;  // ← 追加
 4. **β-D-2d**: スコア計算共通化 — [GameSceneMain.h](Project2/GameSceneMain.h) に `timerCalcScore(TIMER_STATE*)` プロトタイプ追加、[GameSceneMain.cpp](Project2/GameSceneMain.cpp) に関数定義追加 (旧 if-else 3 分岐: 早い/遅い/ピッタリの 1.25 倍ボーナス)。Game1Scene.cpp の `case TIMER_STATUS_DONE` および Game2Scene.cpp の `case GAME2_STATE_DONE` 内の同一スコア計算ブロック (18 行 ×2) を `timerCalcScore(&state);` 1 行呼び出しに置換。β-D-2 系完了 — 計測ロジックの重複が完全消滅
 5. **β-D-3**: エラーハンドリング強化 (案 B: 中程度、フォールバック動作追加) — [GameMain.h](Project2/GameMain.h) に `MyOutputDebugString` マクロ昇格 (Game2Scene.cpp 専用 → 全シーン共通、`<stdio.h>`/`<Windows.h>`/`<tchar.h>` も同梱)、Game2Scene.cpp の重複定義削除。[GameMain.cpp](Project2/GameMain.cpp) `DxLib_Init` 失敗時にデバッグログ追加。[GameSceneMain.cpp](Project2/GameSceneMain.cpp) `<assert.h>` include 追加、`changeScene` 範囲外時にログ + Debug ビルド assert、`initCurrentScene` を `BOOL` 戻り値化、`FrameMove` に SCENE_MENU フォールバック (init 失敗時) + 諦め (SCENE_NONE) ロジック追加。現状全 init が TRUE 固定のため発火しないが、将来 LoadGraph 等を追加した時の布石
 6. **β-D-4**: マジックナンバー定数化 (案 D: A+B+C+D 一括、ネット系除外) — [GameMain.h](Project2/GameMain.h) に画面 (`SCREEN_WIDTH/HEIGHT/BPP`)・FPS (`FPS/MS_PER_SEC`)・フォント (`FONT_SIZE_DEFAULT`)・Game 共通レイアウト (`LAYOUT_X_DEFAULT`/`LAYOUT_Y_STATUS`〜`Y_SCORE`)・メニュー専用レイアウト (`MENU_X_*`/`MENU_Y_*`) を `#define` で集約。[GameSceneMain.cpp](Project2/GameSceneMain.cpp) にファイルスコープで乱数定数 (`RANDOM_TARGET_RANGE/OFFSET`、`RANDOM_SPEED_RANGE/OFFSET`、`SPEED_MULT_DIVISOR`、`PERFECT_BONUS_RATIO`) を追加し timerReset/timerCalcScore 内置換。GameMain.cpp の `SetGraphMode`/FPS 待機、Game1/2/3/Menu の DrawString/SetFontSize、Game1/2 の `FrameTmp / 60` を全て定数経由に。約 30 箇所の数値が意味づけされた識別子に置換。ネット系 (`3500`/`256`/`MAKEWORD(1,1)`) は γ で `netBattle` 完成と一体整理予定のため除外。これで **β-D 系完了 → 次はフェーズ γ**
+
+### フェーズ γ-1: 練習モード追加 (完了, 2026-06-24)
+
+ユーザー提案を受けて γ 本体着手の前段として実施。Workflow で 3 案 (Game2 統合 / 新シーン Game4 / Game1 拡張) を並列探索 → ユーザー判断で「**Game3Scene を練習モード本体に転用、Game4Scene を新雛形に複製**」を採用。
+
+- **Game3Scene** = 練習モード本体 (Game1Scene ロジック + render 拡張: 倍率常時公開、`TIMER_STATE tmp = state; timerCalcScore(&tmp);` でリアルタイムスコア表示)。`status`/`state` 共に `static` でファイルスコープ閉鎖 (Game1 側の同名グローバルとの LNK2005 回避)
+- **Game4Scene** = 新規追加、現 Game3Scene の空シーン雛形を Copy-Item で複製 + 識別子置換 (`GAMESCENE3_H_` → `GAMESCENE4_H_`、`Game3Scene` → `Game4Scene`、"ゲーム画面１です" → "ゲーム画面４です")。SCENE_NO/sceneTable に登録するが menu[] 非掲載 (= 到達不可、コピー元としてのみ存在)
+- **MenuScene** `MENU_MAX` 2→3、`menu[] = {GAME1, GAME2, GAME3}`、`menuList[3]` 末尾を "" → "練習モード"、旧コメント `//本来→SCENE_NO menu[MENU_MAX] = …SCENE_GAME3` 削除 (現実化したので役目終了)、`gapY` 80→60 (3 項目目とヒントの視認性確保)
+- **Project2.vcxproj** に Game4Scene.cpp/.h を 1 行ずつ追加 (ClCompile/ClInclude)
+- リアルタイムスコアのブレ対策なし (ユーザー判断「リアルタイム性最優先」、`%3.1f` のまま 60FPS 更新)
 
 ### フェーズ γ: LAN ネットワーク対戦の完成
 

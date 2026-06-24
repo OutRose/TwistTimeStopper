@@ -5,6 +5,7 @@
 #include "Game1Scene.h"
 #include "Game2Scene.h"
 #include "Game3Scene.h"
+#include "Game4Scene.h"
 #include "MenuScene.h"
 
 //タイマー乱数定数 (timerReset 専用、ファイルスコープに閉じる)
@@ -50,6 +51,7 @@ static const SCENE_HANDLERS sceneTable[SCENE_MAX] = {
 	/* [SCENE_GAME1] */ { initGame1Scene, moveGame1Scene, renderGame1Scene, releaseGame1Scene, Game1SceneCollideCallback },
 	/* [SCENE_GAME2] */ { initGame2Scene, moveGame2Scene, renderGame2Scene, releaseGame2Scene, Game2SceneCollideCallback },
 	/* [SCENE_GAME3] */ { initGame3Scene, moveGame3Scene, renderGame3Scene, releaseGame3Scene, Game3SceneCollideCallback },
+	/* [SCENE_GAME4] */ { initGame4Scene, moveGame4Scene, renderGame4Scene, releaseGame4Scene, Game4SceneCollideCallback },
 };
 
 //sceneNo が sceneTable の有効インデックス範囲内か判定するヘルパ
