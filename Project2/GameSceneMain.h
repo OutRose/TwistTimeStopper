@@ -30,6 +30,21 @@ typedef enum _TIMER_STATUS {
 	TIMER_STATUS_DONE			// 計測完了、スコア加算OK
 } TIMER_STATUS;
 
+//タイマー計測用の状態変数を集約した構造体 (Game1Scene/Game2Sceneで共有)
+//静的初期化でゼロクリアされ、timerReset() で目標時間と倍速値が乱数セットされる
+typedef struct _TIMER_STATE {
+	float RandomTgt;	// 目標時間 (秒、乱数値 1〜20)
+	float CalFrame;		// 目標フレーム数 (= RandomTgt * 60、60FPS換算)
+	float RandomMtp;	// 倍速値の元乱数 (10〜49)
+	float CalMulti;		// 倍速倍率 (= RandomMtp / 10、1.0〜4.9倍速)
+	float FrameTmp;		// 計測中の累積フレーム数 (CalMulti 加算)
+	float ScMulti;		// スコア計算用の差分 (FrameTmp - CalFrame)
+	float Score;		// 最終スコア
+} TIMER_STATE;
+
+//タイマー状態を乱数初期化 (目標時間と倍速値を再抽選、Game1Scene/Game2Scene 共通)
+void timerReset(TIMER_STATE* state);
+
 //シーンを変更する関数
 void changeScene(SCENE_NO no);
 

@@ -5,14 +5,9 @@
 //外部定義(GameMain.cppにて宣言)+変数シードに使ったミリ秒データ
 extern int Input, EdgeInput, rdSeed;
 
-//乱数用変数を宣言：INT型は目標時間。FLOAT型は倍速値
-float RandomTgt, CalFrame;
-float RandomMtp, CalMulti;
-void targetTimeSet();
-
-//計測用変数、記録用変数を宣言
-float FrameTmp = 0.0;
-float ScMulti, Score = 0.0;
+//計測状態をまとめた構造体 (詳細は GameSceneMain.h の TIMER_STATE)
+//static でファイルスコープに限定 (Game1/Game2 の state は別物として独立させる)
+static TIMER_STATE state = {};
 
 //状態遷移マネージメント変数 (詳細は GameSceneMain.h の TIMER_STATUS を参照)
 TIMER_STATUS status = TIMER_STATUS_INIT;
@@ -25,17 +20,6 @@ BOOL initGame1Scene(void)
 	return TRUE;
 }
 
-void targetTimeSet()
-{
-	//目標時間をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomTgt = (float)(GetRand(19) + 1);
-	CalFrame = RandomTgt * 60;
-
-	//倍速値をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomMtp = (float)(GetRand(39) + 10);
-	CalMulti = RandomMtp / 10;
-}
-
 //	フレーム処理
 void moveGame1Scene()
 {
@@ -43,12 +27,12 @@ void moveGame1Scene()
 	{
 	case TIMER_STATUS_INIT://ここではプレイヤーの入力を待つ
 		//タイマーを初期化
-		FrameTmp = 0.0;
-		Score = 0.0;
+		state.FrameTmp = 0.0;
+		state.Score = 0.0;
 
 		//目標秒数、倍速値の設定関数を呼び出す。
 		//その後、ステータス番号を変更する
-		targetTimeSet();
+		timerReset(&state);
 		status = TIMER_STATUS_READY;
 		break;
 
@@ -73,7 +57,7 @@ void moveGame1Scene()
 
 	case TIMER_STATUS_MEASURING://ここでは計測処理を行う
 		//フレーム加算処理
-		FrameTmp += CalMulti;
+		state.FrameTmp += state.CalMulti;
 
 		//Sキー（STOP）で計測終了
 		if (CheckHitKey(KEY_INPUT_S) == 1)
@@ -94,22 +78,22 @@ void moveGame1Scene()
 
 	case TIMER_STATUS_DONE://計測が終了したあとの処理を行う
 		//スコアリング処理：目標秒フレームとスコア秒フレームを比較
-		if (CalFrame > FrameTmp)//目標より早いパターン
+		if (state.CalFrame > state.FrameTmp)//目標より早いパターン
 		{
 			//誤差が増すほどスコアから多く引かれる
-			ScMulti = FrameTmp - CalFrame;
-			Score = CalFrame - (-ScMulti);
+			state.ScMulti = state.FrameTmp - state.CalFrame;
+			state.Score = state.CalFrame - (-state.ScMulti);
 		}
-		else if (CalFrame < FrameTmp)//目標より遅いパターン
+		else if (state.CalFrame < state.FrameTmp)//目標より遅いパターン
 		{
 			//誤差が増すほどスコアから多く引かれる
-			ScMulti = CalFrame - FrameTmp;
-			Score = CalFrame - (-ScMulti);
+			state.ScMulti = state.CalFrame - state.FrameTmp;
+			state.Score = state.CalFrame - (-state.ScMulti);
 		}
-		else if (CalFrame == FrameTmp)//目標ピッタリ！？
+		else if (state.CalFrame == state.FrameTmp)//目標ピッタリ！？
 		{
 			//フレーム単位で合わせるとは油断ならぬ。ボーナス！
-			Score = CalFrame * 1.25f;
+			state.Score = state.CalFrame * 1.25f;
 		}
 
 		//Rキーで状態リセット
@@ -145,7 +129,7 @@ void renderGame1Scene(void)
 
 	//表示形式についてメモ：INTは整数型%dで問題なし。FLOATは実数型%fを使用
 	//なお、%3.1f＝合計3桁、小数第1位以内で実数表示という意味
-	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", RandomTgt, CalFrame);
+	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", state.RandomTgt, state.CalFrame);
 	//計測終了までは倍速非公開
 	if (status != TIMER_STATUS_DONE)
 	{
@@ -153,12 +137,12 @@ void renderGame1Scene(void)
 	}
 	else if (status == TIMER_STATUS_DONE)
 	{
-		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", CalMulti);
+		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
 	}
 
 	//フレーム値は÷60して表示すること！
-	DrawFormatString(30, 350, ColorGreen, "現在の時間：%3.2f秒", FrameTmp / 60);
-	DrawFormatString(30, 400, ColorSkyLike, "スコア：%3.1f", Score);
+	DrawFormatString(30, 350, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / 60);
+	DrawFormatString(30, 400, ColorSkyLike, "スコア：%3.1f", state.Score);
 }
 
 //	シーン終了時の後処理

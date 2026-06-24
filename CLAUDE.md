@@ -311,11 +311,10 @@ default: break;  // ← 追加
 **完了**:
 1. **β-D-1**: シーンディスパッチャ共通化 — [GameSceneMain.cpp](Project2/GameSceneMain.cpp) の 5 つの `switch (sceneNo)` を `SCENE_HANDLERS` 関数ポインタ束 + `sceneTable` 配列 + 1 行ディスパッチへ。`prevScene` 削除、`MessageBox` 5 箇所撤去 (プラットフォーム依存解消)、シーン追加コストが 5 箇所 → 2 箇所 (enum + テーブル) に減
 2. **β-D-2a**: 色変数共通化 — Game1/2 のサフィックス`2` 並走を解消。7 色 (`ColorWhite`〜`ColorSkyLike`) を [GameMain.cpp](Project2/GameMain.cpp) に集約定義 + [GameMain.h](Project2/GameMain.h) で `extern` 公開。[MenuScene.cpp](Project2/MenuScene.cpp) と [Game3Scene.cpp](Project2/Game3Scene.cpp) の `GetColor` 直呼び 7 箇所も共通変数に置換 (= 観点6 マジックナンバー RGB 直値部分解消)
+3. **β-D-2b+2c (統合)**: TIMER_STATE 構造体導入 + targetTimeSet 共通関数化 — [GameSceneMain.h](Project2/GameSceneMain.h) に `TIMER_STATE` 構造体 (7 メンバ: RandomTgt/CalFrame/RandomMtp/CalMulti/FrameTmp/ScMulti/Score) + `timerReset(TIMER_STATE*)` プロトタイプ追加。[GameSceneMain.cpp](Project2/GameSceneMain.cpp) に `timerReset` 関数定義。Game1Scene.cpp と Game2Scene.cpp の計測変数 7 個 ×2 セットを `TIMER_STATE state = {};` 1 個に集約、約 40 箇所の参照を `state.X` 形式に置換、サフィックス`2`完全消滅。`targetTimeSet`/`targetTimeSet2` 関数定義は削除。これにより乱数初期化ロジックの重複が完全解消
 
 **未着手 (β-D-2 続き)**:
-- **β-D-2b**: targetTimeSet 関数共通化
-- **β-D-2c**: TIMER_STATE 構造体導入 (計測変数集約)
-- **β-D-2d**: スコア計算共通化
+- **β-D-2d**: スコア計算共通化 (case DONE 内の if-else 3 分岐を `timerCalcScore(TIMER_STATE*)` に集約)
 
 **未着手 (β-D その他)**:
 - エラーハンドリング強化 (`DxLib_Init` 失敗時、`changeScene` 範囲外時等)

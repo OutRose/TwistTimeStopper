@@ -43,6 +43,17 @@ static BOOL isValidSceneIndex(SCENE_NO no) {
 	return (no > SCENE_NONE && no < SCENE_MAX);
 }
 
+//タイマー状態を乱数初期化 (Game1Scene/Game2Scene 共通)
+void timerReset(TIMER_STATE* state) {
+	//目標時間をセット (1〜20秒の乱数)、フレーム換算
+	state->RandomTgt = (float)(GetRand(19) + 1);
+	state->CalFrame = state->RandomTgt * 60;
+
+	//倍速値をセット (1.0〜4.9倍の乱数)、10で除して倍率に変換
+	state->RandomMtp = (float)(GetRand(39) + 10);
+	state->CalMulti = state->RandomMtp / 10;
+}
+
 //３ゲーム開始前の初期化を行う
 BOOL InitGame(void) {
 	// 全てのシーンで共有するモノを初期化する

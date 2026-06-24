@@ -34,16 +34,11 @@ static int selectedGame2 = 0;
 //外部定義(GameMain.cppにて宣言)+変数シードに使ったミリ秒データ
 extern int Input, EdgeInput, rdSeed;
 
-//乱数用変数を宣言：INT型は目標時間。FLOAT型は倍速値
-float RandomTgt2, CalFrame2;
-float RandomMtp2, CalMulti2;
-void targetTimeSet2();
-//ネットワーク対戦用の関数も追加する
+//計測状態をまとめた構造体 (詳細は GameSceneMain.h の TIMER_STATE)
+//static でファイルスコープに限定 (Game1/Game2 の state は別物として独立させる)
+static TIMER_STATE state = {};
+//ネットワーク対戦用の関数プロトタイプ
 int netBattle(float score);
-
-//計測用変数、記録用変数を宣言
-float FrameTmp2 = 0.0;
-float ScMulti2, Score2 = 0.0;
 
 //受信したスコアを格納する変数
 char rcScore[256];
@@ -86,17 +81,6 @@ BOOL initGame2Scene(void)
 	selectedGame2 = 0;
 
 	return TRUE;
-}
-
-void targetTimeSet2()
-{
-	//目標時間をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomTgt2 = (float)(GetRand(19) + 1);
-	CalFrame2 = RandomTgt2 * 60;
-
-	//倍速値をセットする（乱数で取得、フレーム換算して計算の準備）
-	RandomMtp2 = (float)(GetRand(39) + 10);
-	CalMulti2 = RandomMtp2 / 10;
 }
 
 //ネットワーク対戦部分：TCPを応用した通信を行う
@@ -182,7 +166,7 @@ int netBattle(float score)
 			//メモ：浮動小数点から文字列に変換する関数
 			//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
 			//この関数で、ここでは自分のスコアを変換し書き込む
-			snprintf(szBuf, 256, "%f", Score2);
+			snprintf(szBuf, 256, "%f", state.Score);
 
 			//送信する
 			nRet = send(remS, szBuf, strlen(szBuf), 0);
@@ -231,7 +215,7 @@ int netBattle(float score)
 				//メモ：浮動小数点から文字列に変換する関数
 				//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
 				//この関数で、ここでは自分のスコアを変換し書き込む
-				snprintf(szBuf, 256, "%f", Score2);
+				snprintf(szBuf, 256, "%f", state.Score);
 
 				//送信する
 				nRet = send(remS, szBuf, strlen(szBuf), 0);
@@ -255,12 +239,12 @@ void moveGame2Scene()
 	{
 	case GAME2_STATE_INIT://ここではプレイヤーの入力を待つ
 		//タイマーを初期化
-		FrameTmp2 = 0.0;
-		Score2 = 0.0;
+		state.FrameTmp = 0.0;
+		state.Score = 0.0;
 		
 		//目標秒数、倍速値の設定関数を呼び出す。
 		//その後、ステータス番号を変更する
-		targetTimeSet2();
+		timerReset(&state);
 		status2 = GAME2_STATE_READY;
 		break;
 
@@ -285,7 +269,7 @@ void moveGame2Scene()
 
 	case GAME2_STATE_MEASURING://ここでは計測処理を行う
 		//フレーム加算処理
-		FrameTmp2 += CalMulti2;
+		state.FrameTmp += state.CalMulti;
 
 		//Sキー（STOP）で計測終了
 		if (CheckHitKey(KEY_INPUT_S) == 1)
@@ -306,22 +290,22 @@ void moveGame2Scene()
 
 	case GAME2_STATE_DONE://計測が終了したあとの処理を行う
 		//スコアリング処理：目標秒フレームとスコア秒フレームを比較
-		if (CalFrame2 > FrameTmp2)//目標より早いパターン
+		if (state.CalFrame > state.FrameTmp)//目標より早いパターン
 		{
 			//誤差が増すほどスコアから多く引かれる
-			ScMulti2 = FrameTmp2 - CalFrame2;
-			Score2 = CalFrame2 - (-ScMulti2);
+			state.ScMulti = state.FrameTmp - state.CalFrame;
+			state.Score = state.CalFrame - (-state.ScMulti);
 		}
-		else if (CalFrame2 < FrameTmp2)//目標より遅いパターン
+		else if (state.CalFrame < state.FrameTmp)//目標より遅いパターン
 		{
 			//誤差が増すほどスコアから多く引かれる
-			ScMulti2 = CalFrame2 - FrameTmp2;
-			Score2 = CalFrame2 - (-ScMulti2);
+			state.ScMulti = state.CalFrame - state.FrameTmp;
+			state.Score = state.CalFrame - (-state.ScMulti);
 		}
-		else if (CalFrame2 == FrameTmp2)//目標ピッタリ！？
+		else if (state.CalFrame == state.FrameTmp)//目標ピッタリ！？
 		{
 			//フレーム単位で合わせるとは油断ならぬ。ボーナス！
-			Score2 = CalFrame2 * 1.25f;
+			state.Score = state.CalFrame * 1.25f;
 		}
 
 		//Rキーで状態リセット
@@ -340,7 +324,7 @@ void moveGame2Scene()
 		if (CheckHitKey(KEY_INPUT_N) == 1)
 		{
 			//自分のスコアを送信する
-			netBattle(Score2);
+			netBattle(state.Score);
 		}
 
 		break;
@@ -405,7 +389,7 @@ void renderGame2Scene(void)
 		float scJudge = strtof(rcScore, NULL);
 
 		scJudge = floorf(scJudge);
-		float Score2J = floorf(Score2);
+		float Score2J = floorf(state.Score);
 
 		//自分のスコアより少ない場合
 		if (scJudge < Score2J)
@@ -428,7 +412,7 @@ void renderGame2Scene(void)
 
 	//表示形式についてメモ：INTは整数型%dで問題なし。FLOATは実数型%fを使用
 	//なお、%3.1f＝合計3桁、小数第1位以内で実数表示という意味
-	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", RandomTgt2, CalFrame2);
+	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", state.RandomTgt, state.CalFrame);
 	//計測終了までは倍速非公開
 	if (status2 != GAME2_STATE_DONE)
 	{
@@ -436,7 +420,7 @@ void renderGame2Scene(void)
 	}
 	else if (status2 == GAME2_STATE_DONE)
 	{
-		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", CalMulti2);
+		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
 		//ネット上でのスコア交換が終わったならば、相手のスコアに表示を変える
 		if (netStatus == 2)
 		{
@@ -445,8 +429,8 @@ void renderGame2Scene(void)
 	}
 
 	//フレーム値は÷60して表示すること！
-	DrawFormatString(30, 350, ColorGreen, "現在の時間：%3.2f秒", FrameTmp2 / 60);
-	DrawFormatString(30, 400, ColorSkyLike, "スコア：%3.1f点", Score2);
+	DrawFormatString(30, 350, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / 60);
+	DrawFormatString(30, 400, ColorSkyLike, "スコア：%3.1f点", state.Score);
 }
 
 //	シーン終了時の後処理
