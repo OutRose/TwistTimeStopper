@@ -174,24 +174,34 @@ Input = i;                                        // 現状保持
 
 ## ネットワーク現状 (Game2Scene の netBattle)
 
-**未完成。完成目標** (詳細は[未完成機能の方針](#未完成機能の方針) 参照)。現状の構造の要点:
+**γ-2 完成 (2026-06-24)**。動く LAN 対戦の最小要件を実装。現状の構造の要点:
 
-- **プロトコル**: TCP (`SOCK_STREAM`, `IPPROTO_TCP`)、ポート **3500**
-- **接続先**: `"localhost"` ハードコード ([Project2/Game2Scene.cpp:169](Project2/Game2Scene.cpp#L169))
-- **データ**: スコア (float) を `snprintf("%f", ...)` で文字列化して送受信
-- **役割切替**: `sideSelect` 変数 (UI 上で N キー押下時に切り替え予定だが、その UI 自体未実装)
-  - `sideSelect = 0`: クライアント (`socket` → `connect` → `send`)
-  - `sideSelect = 1`: サーバー (`socket` → `bind` → `listen` → `accept` → `recv`)
-- **既知バグ**: クライアント側の `case 0` で `remS` (未初期化) を `send` 引数に渡している。本来は送信用 socket `s` を渡すべき。実行すると失敗するが、警告は SOCKET 変数の `INVALID_SOCKET` 初期化で抑止済み。
+- **プロトコル**: TCP (`SOCK_STREAM`, `IPPROTO_TCP`)、ポート **3500**、接続先 `"localhost"` ハードコード
+- **データ**: スコア (float) を `snprintf("%f", ...)` で文字列化して双方向交換 (Challenger → Defender → Challenger の順)
+- **役割切替**: `sideSelect` 変数 (`NET_SIDE` enum) を SIDE_SELECT メニュー UI で選択
+  - `NET_SIDE_CHALLENGER` (送信側): `socket` → `connect` → `send` → `recv` → `closesocket`
+  - `NET_SIDE_DEFENDER` (受信側): `socket` → `bind` → `listen` → `accept` → `recv` → `send` → `closesocket(remS+lisS)`
+- **WinSock 初期化**: `initGame2Scene` で `WSAStartup`、`releaseGame2Scene` で `WSACleanup` (シーン寿命にペアリング)
+- **勝敗判定**: 双方とも受信完了時に `netStatus = 2` セット、`renderGame2Scene` で `state.Score` vs `rcScore` 比較表示
 
-**完成目標**: LAN ネットワーク対戦は Game2Scene の最低動作要件として完成させる方針 (= プレイヤーが Game2 に入って遊べる最小条件)。現状は入場直後から実質操作不能 — `SIDE_SELECT` メニューに UI が無いため `EdgeInput & PAD_INPUT_1` を立たせる契機を得ず、Z キー押下エッジ取りこぼし問題と相まってメニューから脱出できない (2026-06-23 実機確認、master でも再現)。少なくとも以下が必要:
+**γ-2 で修正済み既知バグ** (詳細はコミット履歴 `CC：γ-2 ...`):
+- ✅ `send(remS, ...)` 未初期化バグ → `send(s, ...)` 修正 (Challenger case)
+- ✅ `while (szBuf != NULL)` 無限ループ → 1 回交換に変更 (Defender case)
+- ✅ `netStatus = 2` 遷移経路欠落 → 両 case で受信完了時セット
+- ✅ `lisS` リソースリーク (Challenger でも作成されていた) → Defender case 内に socket+bind+listen+accept 集約
+- ✅ `WSAStartup`/`WSACleanup` 非対称 → init/release ペアリング
+- ✅ SIDE_SELECT UI 未実装 → MenuScene 流選択肢描画追加 (上下キー + Z 決定 + X 戻り)
 
-- `SIDE_SELECT` メニュー UI の実装 ([renderGame2Scene の TODO](Project2/Game2Scene.cpp#L392) を解消、MenuScene 流の選択肢描画を追加)
-- 既知バグ修正: `remS` 未初期化、`while (szBuf != NULL)` 無限ループ条件、`netStatus` 書き込み欠落 (受信成立後の状態遷移なし)、`bind`/`connect`/`socket`/`accept` 等の戻り値未チェック
-- WinSock リソース管理整理 (`WSAStartup`/`WSACleanup` のペアリング、`closesocket` 漏れ)
-- プロトコル整備 (任意): 切断キーワード、再接続、エラー時の cleanup
+**γ-2 仕様化された制約 (将来課題)**:
+- ⚠️ 同期 `accept`/`recv` によるフリーズ: Defender 側で N キー押下後、Challenger 起動まで**ゲームループ凍結** (ESC 反応不能、Task Manager 強制終了で脱出)。非ブロッキング化 (`ioctlsocket FIONBIO` + `select` または別スレッド) は **フェーズ δ** 候補
 
-進め方は[リファクタリング戦略](#リファクタリング戦略) の **フェーズ γ** 参照。
+**γ-3 持ち越し (堅牢化)**:
+- 全 WinSock 関数の戻り値検査 (`socket`/`bind`/`listen`/`connect`/`accept`/`send`/`recv` のエラー時 cleanup)
+- `netStatus` enum 化 (β-C-4 連動): `NET_STATUS` (INIT/WAITING/RECEIVED)
+- ネット系マジックナンバー定数化 (β-D-4 持ち越し): `NET_PORT 3500`/`NET_BUF_SIZE 256`/`SERVER_NAME_SIZE 128`/`WINSOCK_VERSION MAKEWORD(1,1)`
+- `for` ループの `rcScore` コピーを `memcpy` に置換
+
+進め方は[リファクタリング戦略](#リファクタリング戦略) の **フェーズ γ-2 / γ-3** 参照。
 
 ---
 
@@ -246,9 +256,9 @@ default: break;  // ← 追加
 
 完成させるかどうかをカテゴリ別に明示:
 
-**完成目標 (= Game2Scene の最低動作要件)**:
-- `netBattle` のネットワーク同期 (Game2Scene.cpp) — 既知バグ修正含む。[ネットワーク現状](#ネットワーク現状-game2scene-の-netbattle) 参照
-- `SIDE_SELECT` メニュー UI ([Project2/Game2Scene.cpp:392](Project2/Game2Scene.cpp#L392) の TODO 解消)
+**完成済み (γ-2, 2026-06-24)**:
+- `netBattle` のネットワーク同期 (Game2Scene.cpp) — 双方向交換、致命バグ修正、リソース管理整理済。[ネットワーク現状](#ネットワーク現状-game2scene-の-netbattle) 参照
+- `SIDE_SELECT` メニュー UI (`renderGame2Scene` 内に MenuScene 流選択肢描画、X キーでメニュー戻り)
 
 **完成済み (γ-1, 2026-06-24)**:
 - `Game3Scene` ([Project2/Game3Scene.cpp](Project2/Game3Scene.cpp)) — **練習モード本体** (シングルプレイ、Game1Scene と違って速度倍率とリアルタイムスコアを公開、学習用)。MenuScene の menu[] 第 3 項目として登録、Z キーで決定して入場。リアルタイムスコアは `TIMER_STATE tmp = state; timerCalcScore(&tmp);` のコピー方式で副作用回避
@@ -329,16 +339,34 @@ default: break;  // ← 追加
 - **Project2.vcxproj** に Game4Scene.cpp/.h を 1 行ずつ追加 (ClCompile/ClInclude)
 - リアルタイムスコアのブレ対策なし (ユーザー判断「リアルタイム性最優先」、`%3.1f` のまま 60FPS 更新)
 
-### フェーズ γ: LAN ネットワーク対戦の完成
+### フェーズ γ-2: 動く LAN 対戦の最小完成 (完了, 2026-06-24)
 
-[未完成機能の方針](#未完成機能の方針) で「完成目標」と位置づけた `netBattle` と `SIDE_SELECT` メニュー UI を仕上げる。これが Game2Scene の最低動作要件 — 現状は入場直後から実質操作不能 (UI 未表示 + Z キーエッジ取りこぼしの二重原因)。スコープ:
+Workflow で 3 案 (段階分割 / 一括完成 / 2 分割) を並列探索 → **案 C: 2 分割 (機能→品質)** を採用。本 γ-2 は第 1 段 (機能完成)。ユーザー判断: WSA 配置案 ii (init/release ペアリング)、lisS 案 ii (Defender case 内に socket 作成移動)。
 
-- `SIDE_SELECT` メニュー UI (`renderGame2Scene` 内に MenuScene 流の選択肢描画)
-- `netBattle` 既知バグ群修正 (`remS` 未初期化、無限ループ条件、`netStatus` 遷移欠落、戻り値未チェック)
-- WinSock リソース管理整理 (`WSAStartup`/`WSACleanup` のペアリング、`closesocket` 漏れ)
-- β-C-4 (`netStatus` enum 化) と連動
+- **SIDE_SELECT UI** ([renderGame2Scene](Project2/Game2Scene.cpp)): MenuScene 流の上下選択 + Z 決定 + X 戻り、x=195/y=200/gapY=60 で `menuList2[]` を描画
+- **netBattle 全面整理** (約 145 行 → 約 120 行):
+  - `send(remS,...)` → `send(s,...)` 修正 (Challenger)
+  - `while (szBuf != NULL)` 無限ループ削除 → 1 回交換
+  - `netStatus = 2` 遷移を両 case の受信完了時に追加
+  - `lisS` を Defender case 内に移動 (Challenger でのリソースリーク解消)
+  - **双方向交換実装** (両者で勝敗表示の対称性確保)
+- **WinSock リソース管理** (案 ii ペアリング):
+  - `WSAStartup` → `initGame2Scene` (BOOL FALSE 戻りで β-D-3 フォールバック発動)
+  - `WSACleanup` → `releaseGame2Scene` (既存維持)
+  - `closesocket(s)` (Challenger)、`closesocket(remS)+closesocket(lisS)` (Defender) を完備
+- **SIDE_SELECT case の X キー脱出処理追加** + 条件付き break を無条件 break に修正
+- **テスト方法**: ビルド済み `Project2.exe` を Explorer から 2 回起動 (Defender 先 → Challenger 後)、Visual Studio デバッグでは 1 プロセスのみのため不可
 
-着手タイミングは **β-D 完了後** を想定 (構造改善 → ネット対戦完成の順)。ただしユーザー判断で前倒し可能。
+### フェーズ γ-3: 堅牢化リファクタ (持ち越し)
+
+γ-2 範囲外として持ち越し:
+- 全 WinSock 関数の戻り値検査 (エラー時 cleanup)
+- `netStatus` enum 化 (β-C-4 連動): `NET_STATUS` (INIT/WAITING/RECEIVED)
+- ネット系マジックナンバー定数化 (β-D-4 持ち越し): `NET_PORT 3500`/`NET_BUF_SIZE 256`/`SERVER_NAME_SIZE 128`/`WINSOCK_VERSION MAKEWORD(1,1)`
+- `for` ループの `rcScore` コピーを `memcpy` に置換
+- `gethostname`/`inet_ntoa` デバッグ出力の Defender 専用への移動検討
+
+着手は γ-2 のビルド・動作確認完了後。コミットは γ-2 と分離 (動く前/後と磨く前/後で git log を明瞭化)。
 
 ### フェーズ δ (予定): スコアシステム見直し
 

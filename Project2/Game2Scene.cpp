@@ -56,6 +56,19 @@ BOOL initGame2Scene(void)
 {
 	//入るときは必ずリセット
 	status2 = GAME2_STATE_SIDE_SELECT;
+	sideSelect = NET_SIDE_UNSELECTED;
+	netStatus = 0;
+
+	//WinSock 初期化 (γ-2-c: シーン寿命に合わせて init/release ペアリング、netBattle 内呼び出しを移管)
+	//失敗時は BOOL FALSE を返し、initCurrentScene のフォールバック (β-D-3) で SCENE_MENU に戻る
+	WORD wVerReq = MAKEWORD(1, 1);
+	WSADATA wsaData;
+	int nRet = WSAStartup(wVerReq, &wsaData);
+	if (nRet != 0 || wsaData.wVersion != wVerReq) {
+		MyOutputDebugString(_T("WSAStartup failed (nRet=%d, version=0x%x)\n"), nRet, wsaData.wVersion);
+		return FALSE;
+	}
+	MyOutputDebugString("\n簡易通信プログラム 起動準備：第1段階完了");
 
 	//メニュー関係の初期化
 	SetFontSize(FONT_SIZE_DEFAULT);
@@ -66,148 +79,120 @@ BOOL initGame2Scene(void)
 	return TRUE;
 }
 
-//ネットワーク対戦部分：TCPを応用した通信を行う
+//ネットワーク対戦部分：TCPを応用した通信を行う (γ-2-b で全面整理、双方向交換実装)
 //設定するポート番号は「3500」
+//WSAStartup/WSACleanup は initGame2Scene/releaseGame2Scene に移管済み (γ-2-c)
 int netBattle(float score)
 {
-	//ネットワーク処理中であるかを示す変数
-//処理が完了したら0に変更する
-	int cFunc = 1;
-
-	//ココから初期化処理
-	WORD    wVerReq = MAKEWORD(1, 1);
-	WSADATA wsaData;
 	int     nRet;
-	nRet = WSAStartup(wVerReq, &wsaData);
+	int     cnt = 1;
+	char    szBuf[256];
+	SOCKET  remS = INVALID_SOCKET;	//受信用ソケット (両 case で使用)
 
-	if (wsaData.wVersion != wVerReq)
-	{
-		fprintf(stderr, "\n Wrong Version\n");
-		return -1;
-	}
-	MyOutputDebugString("\n簡易通信プログラム 起動準備：第1段階完了");
-
-	nRet = 1;
-	int nLen, cnt = 1;
-	char        szBuf[256];
-	SOCKET      lisS = INVALID_SOCKET, remS = INVALID_SOCKET;
-	SOCKADDR_IN saSv;
-	//ソケット定義
-	lisS = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-
-	saSv.sin_family = AF_INET;
-	//Let Winsock supply address
-	saSv.sin_addr.s_addr = INADDR_ANY;
-	//Use Port from command line
-	saSv.sin_port = htons(3500);
-	nRet = bind(lisS, (LPSOCKADDR)&saSv, sizeof(struct sockaddr));
-
-	nLen = sizeof(SOCKADDR);
+	//共通: 自ホスト名取得 (デバッグ出力用、Challenger/Defender 両方で実行)
 	nRet = gethostname(szBuf, sizeof(szBuf));
 	if (nRet == SOCKET_ERROR)
 	{
-		closesocket(lisS);
 		return 0;
 	}
 	LPHOSTENT lpInAddr = gethostbyname(szBuf);
-
-	//デバッグ出力
 	MyOutputDebugString(_T("\n PC info: %s or %s\n"),
 		szBuf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
 
 	//これより、送受信どちらかを選んだかにより処理が変化する
 	switch (sideSelect)
 	{
-		//こちらが送信側の場合
+		//こちらが送信側 (Challenger): socket → connect → send → recv → netStatus=2 → closesocket
 		case NET_SIDE_CHALLENGER: {
-			//相手プログラムとの接続処理を行う
 			LPHOSTENT	lpHostEntry;
 			SOCKET		s;
-			SOCKADDR_IN saSv;
-			int			nRet;
-			int			cnt = 1;
-			short		nPort = 3500;  //通信に使用するポート番号
-			char		szBuf[256];
-
+			SOCKADDR_IN saCl;
+			short		nPort = 3500;	//通信に使用するポート番号
 			//接続先をローカルホストに限定する
-			char szServer[128] = "localhost";
+			char		szServer[128] = "localhost";
 
 			MyOutputDebugString(_T("\n %sの確認中です…"), szServer);
 			lpHostEntry = gethostbyname(szServer);
-			if (lpHostEntry == NULL) return FALSE;  //接続先の指定エラーを返す
+			if (lpHostEntry == NULL) return FALSE;	//接続先の指定エラーを返す
 			MyOutputDebugString("OK!\n");
 
-			//ソケットの作成処理
+			//ソケットの作成 + 相手サーバーに接続
 			s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			saCl.sin_family = AF_INET;
+			saCl.sin_addr = *((LPIN_ADDR)*lpHostEntry->h_addr_list);
+			saCl.sin_port = htons(nPort);
+			nRet = connect(s, (LPSOCKADDR)&saCl, sizeof(struct sockaddr));
 
-			saSv.sin_family = AF_INET;
-			saSv.sin_addr = *((LPIN_ADDR)*lpHostEntry->h_addr_list);
-			saSv.sin_port = htons(nPort);
-			nRet = connect(s, (LPSOCKADDR)&saSv, sizeof(struct sockaddr));  
-			//↑で相手サーバーに接続する
-
-			//メモ：浮動小数点から文字列に変換する関数
-			//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
-			//この関数で、ここでは自分のスコアを変換し書き込む
+			//自スコアを文字列化して送信 (γ-2-b バグ #1 修正: remS → s)
 			snprintf(szBuf, 256, "%f", state.Score);
+			nRet = send(s, szBuf, strlen(szBuf), 0);
+			MyOutputDebugString(_T("送信: %s\n"), szBuf);
 
-			//送信する
-			nRet = send(remS, szBuf, strlen(szBuf), 0);
+			//相手スコア受信 (γ-2-b バグ #4: 双方向交換のため Challenger に recv 追加)
+			memset(szBuf, 0, sizeof(szBuf));
+			nRet = recv(s, szBuf, sizeof(szBuf), 0);
+			if (nRet != SOCKET_ERROR)
+			{
+				//受信した相手のスコアを格納する
+				for (int i = 0; i < 256; i++) { rcScore[i] = szBuf[i]; }
+				//γ-2-b バグ #3: netStatus 遷移追加 (受信完了 = 勝敗判定可能)
+				netStatus = 2;
+				MyOutputDebugString(_T("受信: %s\n"), szBuf);
+			}
 
+			//γ-2-c: closesocket でリソース解放 (旧コードは漏れていた)
+			closesocket(s);
 			break;
 		}
-		//こちらが受信側の場合
+		//こちらが受信側 (Defender): socket → bind → listen → accept → recv → send → netStatus=2 → closesocket
 		case NET_SIDE_DEFENDER: {
-			//Connect要求が来るまで待機
+			SOCKET		lisS = INVALID_SOCKET;	//listen 用ソケット (Defender 専用)
+			SOCKADDR_IN saSv;
+			short		nPort = 3500;
+
+			//γ-2-b 構造整理 #5: socket+bind+listen+accept を Defender case 内に集約
+			//(Challenger では使わないリソースなので関数頭から移動)
+			lisS = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			saSv.sin_family = AF_INET;
+			saSv.sin_addr.s_addr = INADDR_ANY;	//Let Winsock supply address
+			saSv.sin_port = htons(nPort);
+			nRet = bind(lisS, (LPSOCKADDR)&saSv, sizeof(struct sockaddr));
+
+			//Connect 要求が来るまで待機 (同期 listen/accept、フリーズ仕様)
 			nRet = listen(lisS, SOMAXCONN);
 			MyOutputDebugString("接続待機状態に入ります…");
 
-			//受信を承諾する
+			//受信を承諾する (相手の connect まで accept ブロック)
 			remS = accept(lisS, NULL, NULL);
 			MyOutputDebugString("接続完了しました\n");
-			MyOutputDebugString("相手を待っています…\n");
 
-			//受信の繰り返し
-			while (szBuf != NULL)
+			//相手スコア受信 (γ-2-b バグ #2 修正: while (szBuf != NULL) 無限ループ削除、1 回交換)
+			memset(szBuf, 0, sizeof(szBuf));
+			nRet = recv(remS, szBuf, sizeof(szBuf), 0);
+			if (nRet == SOCKET_ERROR)
 			{
-				memset(szBuf, 0, sizeof(szBuf));
-				//受信プロセス
-				nRet = recv(remS, szBuf, sizeof(szBuf), 0);
-				if (nRet == SOCKET_ERROR)
-				{
-					closesocket(lisS);
-					closesocket(remS);
-					return 0;
-				}
-				//受信内容を表示する
-				MyOutputDebugString(_T("%ld>%s\n"), cnt++, szBuf);
-
-				//受信した相手のスコアを格納する
-				for (int i = 0; i < 256; i++)
-				{
-					rcScore[i] = szBuf[i];
-				}
-
-				//終了のキーワードを判別する
-				//if (strcmp(szBuf, "byebye") == 0)break;
-
-				//送信データを入力させる
-				//printf("入力>>");
-				//scanf("%s", szBuf);
-
-				//メモ：浮動小数点から文字列に変換する関数
-				//使い方：(書き込み先文字列, 文字列サイズ, 書式指定文字, 変換元引数)
-				//この関数で、ここでは自分のスコアを変換し書き込む
-				snprintf(szBuf, 256, "%f", state.Score);
-
-				//送信する
-				nRet = send(remS, szBuf, strlen(szBuf), 0);
-
-				//この部分にbyebye切断コードを入れるか？一旦保留で。
-
-				if (nRet == SOCKET_ERROR)break;
-				if (strcmp(szBuf, "byebye") == 0)break;
+				closesocket(lisS);
+				closesocket(remS);
+				return 0;
 			}
+			MyOutputDebugString(_T("%ld>%s\n"), cnt++, szBuf);
+
+			//受信した相手のスコアを格納する
+			for (int i = 0; i < 256; i++) { rcScore[i] = szBuf[i]; }
+
+			//自スコアを文字列化して送信 (γ-2-b バグ #4: 双方向交換のため Defender に send 追加)
+			snprintf(szBuf, 256, "%f", state.Score);
+			nRet = send(remS, szBuf, strlen(szBuf), 0);
+			if (nRet != SOCKET_ERROR)
+			{
+				//γ-2-b バグ #3: netStatus 遷移追加 (送受信完了 = 勝敗判定可能)
+				netStatus = 2;
+				MyOutputDebugString(_T("送信: %s\n"), szBuf);
+			}
+
+			//γ-2-c: closesocket でリソース解放 (lisS は Defender 専用、両方解放)
+			closesocket(remS);
+			closesocket(lisS);
 			break;
 		}
 	}
@@ -321,7 +306,7 @@ void moveGame2Scene()
 		}
 
 		//７(3) 新たにボタン１が押されたら決定
-		if ((EdgeInput & PAD_INPUT_1)) 
+		if ((EdgeInput & PAD_INPUT_1))
 		{
 			//0が選ばれたら送信者、1が選ばれたら受信者
 			//この後、ステータスをゲーム本編に移す
@@ -329,16 +314,40 @@ void moveGame2Scene()
 			else if (selectedGame2 == 1)sideSelect = NET_SIDE_DEFENDER;
 			status2 = GAME2_STATE_INIT;
 		}
-		if(sideSelect != NET_SIDE_UNSELECTED)break;
+
+		//Xキーでタイトルに戻る (γ-2-a: SIDE_SELECT 中の脱出手段、ESC 以外を提供)
+		if (CheckHitKey(KEY_INPUT_X) == 1)
+		{
+			changeScene(SCENE_MENU);
+		}
+
+		break;
 	}
 }
 
 //	レンダリング処理
 void renderGame2Scene(void)
 {
-	//挑むか、挑まれるかを選択させる
-	// TODO: switch (sideSelect) で送信側/受信側の描き分けを実装
-	
+	//SIDE_SELECT 状態: 役割選択メニュー描画 (γ-2-a、MenuScene 流の上下選択、PAD_INPUT_1 で決定)
+	//ここで描画を完結させ、以降の計測関連描画はスキップ (return)
+	if (status2 == GAME2_STATE_SIDE_SELECT)
+	{
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "ネット対戦の役割を選んでください", ColorWhite);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_BACK_TO_TITLE, "Zキーで決定、Xキーでタイトルに戻る", ColorWhite);
+
+		//選択肢を MenuScene 流で描画 (selectedGame2 に応じた色分け、ColorRed=選択中)
+		int x = 195, y = 200, gapY = 60;
+		for (int i = 0; i < MENU_MAX_G; i++, y += gapY) {
+			if (i == selectedGame2) {
+				DrawString(x, y, menuList2[i], ColorRed);
+			}
+			else {
+				DrawString(x, y, menuList2[i], ColorWhite);
+			}
+		}
+		return;	//SIDE_SELECT 中は計測関連描画スキップ
+	}
+
 	//Rリセット可能であることを通知
 	if (status2 == GAME2_STATE_DONE)
 	{
