@@ -60,3 +60,8 @@ extern unsigned int ColorWhite, ColorRed, ColorGreen, ColorBlue, ColorYellow, Co
 #define MENU_Y_VERSION    100
 #define MENU_X_HINT       85
 #define MENU_Y_HINT       400
+
+//SIDE_SELECT メニュー専用レイアウト座標 (Game2Scene の役割選択画面、MenuScene と類似仕様、δ-2 で集約)
+#define SIDE_SELECT_X_ITEM   195  //選択肢の X 位置
+#define SIDE_SELECT_Y_FIRST  200  //最初の選択肢の Y 位置
+#define SIDE_SELECT_GAP_Y    60   //選択肢間の Y 間隔

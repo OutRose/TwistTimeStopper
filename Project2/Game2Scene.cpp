@@ -16,7 +16,8 @@
 #define WINSOCK_VERSION_REQ  MAKEWORD(1, 1)  //要求する WinSock バージョン (1.1)
 
 #define MENU_MAX_G 2
-char* menuList2[3] = { "挑む側","挑まれる側","" };
+//SIDE_SELECT メニュー項目 (δ-2: 未使用 3 要素目 "" を削除し MENU_MAX_G と要素数を一致)
+char* menuList2[MENU_MAX_G] = { "挑む側", "挑まれる側" };
 //選択されたゲームを表すメニュー番号の初期化（menuの添え字）
 static int selectedGame2 = 0;
 
@@ -26,11 +27,9 @@ extern int Input, EdgeInput, rdSeed;
 //計測状態をまとめた構造体 (詳細は GameSceneMain.h の TIMER_STATE)
 //static でファイルスコープに限定 (Game1/Game2 の state は別物として独立させる)
 static TIMER_STATE state = {};
-//ネットワーク対戦用の関数プロトタイプ
-int netBattle(float score);
 
-//受信したスコアを格納する変数
-char rcScore[NET_BUF_SIZE];
+//受信したスコアを格納する変数 (δ-2: 外部参照ゼロ確認済、static で Game2Scene 内に閉じる)
+static char rcScore[NET_BUF_SIZE];
 
 //状態遷移マネージメント変数 (詳細は下記 GAME2_STATE enum 参照)
 //0-3 は Game1Scene.cpp の TIMER_STATUS とミラー、4 は Game2 専用 SIDE_SELECT
@@ -81,7 +80,7 @@ BOOL initGame2Scene(void)
 		MyOutputDebugString(_T("WSAStartup failed (nRet=%d, version=0x%x)\n"), nRet, wsaData.wVersion);
 		return FALSE;
 	}
-	MyOutputDebugString("\n簡易通信プログラム 起動準備：第1段階完了");
+	MyOutputDebugString("\nWSAStartup 完了");
 
 	//メニュー関係の初期化
 	SetFontSize(FONT_SIZE_DEFAULT);
@@ -98,25 +97,8 @@ BOOL initGame2Scene(void)
 int netBattle(float score)
 {
 	int     nRet;
-	int     cnt = 1;
 	char    szBuf[NET_BUF_SIZE];
-	SOCKET  remS = INVALID_SOCKET;	//受信用ソケット (両 case で使用)
-
-	//共通: 自ホスト名取得 (デバッグ出力用、Challenger/Defender 両方で実行)
-	nRet = gethostname(szBuf, sizeof(szBuf));
-	if (nRet == SOCKET_ERROR)
-	{
-		MyOutputDebugString(_T("gethostname failed (err=%d)\n"), WSAGetLastError());
-		return -1;
-	}
-	LPHOSTENT lpInAddr = gethostbyname(szBuf);
-	if (lpInAddr == NULL)
-	{
-		MyOutputDebugString(_T("gethostbyname failed for self host (err=%d)\n"), WSAGetLastError());
-		return -1;
-	}
-	MyOutputDebugString(_T("\n PC info: %s or %s\n"),
-		szBuf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
+	SOCKET  remS = INVALID_SOCKET;	//受信用ソケット (Defender 内 accept 結果格納、関数頭で初期化)
 
 	//これより、送受信どちらかを選んだかにより処理が変化する
 	switch (sideSelect)
@@ -195,6 +177,23 @@ int netBattle(float score)
 			SOCKADDR_IN saSv;
 			short		nPort = NET_PORT;
 
+			//Defender 専用: 自ホスト名/IP をデバッグ出力 (δ-2、どこで listen 待機しているか確認用)
+			//Challenger 側は localhost 接続のため自ホスト情報は不要、関数頭の共通プロローグから移動
+			nRet = gethostname(szBuf, sizeof(szBuf));
+			if (nRet == SOCKET_ERROR)
+			{
+				MyOutputDebugString(_T("gethostname failed (err=%d)\n"), WSAGetLastError());
+				return -1;
+			}
+			LPHOSTENT lpInAddr = gethostbyname(szBuf);
+			if (lpInAddr == NULL)
+			{
+				MyOutputDebugString(_T("gethostbyname failed for self host (err=%d)\n"), WSAGetLastError());
+				return -1;
+			}
+			MyOutputDebugString(_T("\n PC info: %s or %s\n"),
+				szBuf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
+
 			//γ-2-b 構造整理 #5: socket+bind+listen+accept を Defender case 内に集約
 			//(Challenger では使わないリソースなので関数頭から移動)
 			lisS = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -244,7 +243,8 @@ int netBattle(float score)
 				closesocket(lisS);
 				return -1;
 			}
-			MyOutputDebugString(_T("%ld>%s\n"), cnt++, szBuf);
+			//δ-2: cnt 変数 + "%ld>%s" 書式を撤去し Challenger と同じ "受信: %s" 書式に統一
+			MyOutputDebugString(_T("受信: %s\n"), szBuf);
 
 			//受信した相手のスコアを格納する (γ-3: for ループから memcpy 化、可読性 + 性能)
 			memcpy(rcScore, szBuf, NET_BUF_SIZE);
@@ -409,7 +409,8 @@ void renderGame2Scene(void)
 		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_BACK_TO_TITLE, "Zキーで決定、Xキーでタイトルに戻る", ColorWhite);
 
 		//選択肢を MenuScene 流で描画 (selectedGame2 に応じた色分け、ColorRed=選択中)
-		int x = 195, y = 200, gapY = 60;
+		//δ-2: マジックナンバーを GameMain.h の SIDE_SELECT_* 定数に置換
+		int x = SIDE_SELECT_X_ITEM, y = SIDE_SELECT_Y_FIRST, gapY = SIDE_SELECT_GAP_Y;
 		for (int i = 0; i < MENU_MAX_G; i++, y += gapY) {
 			if (i == selectedGame2) {
 				DrawString(x, y, menuList2[i], ColorRed);

@@ -6,6 +6,25 @@
 
 ---
 
+## [0.9.2] - 2026-06-25
+
+### Changed
+- **δ-2**: Game2Scene 全体清掃。γ-3 でスコープ膨張防止のため範囲外とした細部を整理
+- 自ホスト名取得プロローグ (`gethostname` / `gethostbyname` / `inet_ntoa`) を関数頭の共通位置から Defender case 内に移動 (Challenger は `localhost` 接続のため自ホスト情報は不要、意味整合を強化)
+- Defender 受信ログを `%ld>%s` 書式から Challenger と同じ `受信: %s` 書式に統一
+- `initGame2Scene` のログ「簡易通信プログラム 起動準備：第1段階完了」を意味の明確な「WSAStartup 完了」に変更 (第 2 段階以降が存在しない曖昧表現を解消)
+
+### Added
+- SIDE_SELECT メニュー専用レイアウト定数 (`SIDE_SELECT_X_ITEM` / `SIDE_SELECT_Y_FIRST` / `SIDE_SELECT_GAP_Y`) を [GameMain.h](Project2/GameMain.h) に集約 (β-D-4 のレイアウト集約方針と整合)
+- `static char rcScore[NET_BUF_SIZE]` (`static` 修飾子を付与、Game2Scene 内に閉じる)
+
+### Removed
+- `cnt` 変数 (Defender 内で 1 回しか出ない `cnt++` ログ用、書式不統一の原因)
+- `netBattle` プロトタイプ宣言 (定義が `moveGame2Scene` より上にあるので前方宣言不要)
+- `menuList2[3]` の未使用 3 要素目 `""` (配列サイズを `MENU_MAX_G` と一致させた)
+
+---
+
 ## [0.9.1] - 2026-06-25
 
 ### Changed

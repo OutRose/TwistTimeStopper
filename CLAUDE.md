@@ -406,15 +406,29 @@ Workflow で 5 案 (A: 正規化 0〜100% / B: グレード制 / C: ハイブリ
 
 テスト: Debug|Win32 ビルド成功 (警告ゼロ、`Project2.exe` 生成)。動作確認は単体プレイで完了、ネット対戦は γ-2 の 2 プロセステスト手順を再実行して勝敗判定が正常動作するか追って検証 (本コミットでは未実施)。
 
-### フェーズ δ-2/δ-3 (予定): Game2Scene 全体清掃 + ネット運用強化
+### フェーズ δ-2: Game2Scene 全体清掃 (完了, 2026-06-25)
 
-#### δ-2: Game2Scene 全体清掃 (γ-3 範囲外として持ち越し)
+γ-3 でスコープ膨張防止のため範囲外とした細部を整理。判断 2 点はユーザー裁量、清掃 7 項目を一括実施。
 
-γ-3 でスコープ膨張防止のため範囲外とした細部:
-- `cnt` 変数整理 (Defender 内 `cnt = 1` 宣言 / `cnt++` ログ、使用箇所限定的)
-- デバッグ出力位置見直し (`gethostname`/`inet_ntoa` を Defender 専用に移動するか共通維持か)
-- γ-2 追加ログの書式統一 ("送信:" "受信:" 等)
-- 不要コメント削除 (例: `//終了のキーワードを判別する` 等の旧実装由来 — ただし CLAUDE.md コメント方針で役割メモは保護)
+採用判断 (ユーザー選択):
+- 自ホスト名取得プロローグの配置: **Defender 専用に移動** (Challenger は localhost 接続のため自ホスト情報は不要、意味整合を強化)
+- SIDE_SELECT メニューのマジックナンバー定数化: **δ-2 で GameMain.h に集約** (β-D-4 のレイアウト集約方針と整合)
+
+実装内容:
+- [GameMain.h](Project2/GameMain.h): SIDE_SELECT 専用レイアウト定数 3 個追加 (`SIDE_SELECT_X_ITEM 195` / `SIDE_SELECT_Y_FIRST 200` / `SIDE_SELECT_GAP_Y 60`)
+- [Game2Scene.cpp](Project2/Game2Scene.cpp) 7 項目清掃:
+  - `cnt` 変数削除 (Defender 内 1 回しか出ない `cnt++` ログ用、書式不統一の原因)
+  - `menuList2[3]` の未使用 3 要素目 `""` 削除し `menuList2[MENU_MAX_G]` に縮小
+  - `netBattle` プロトタイプ宣言削除 (定義が `moveGame2Scene` より上にあるので前方宣言不要)
+  - グローバル `rcScore` を `static` 化 (外部参照ゼロ確認済)
+  - 「簡易通信プログラム 起動準備：第1段階完了」を「WSAStartup 完了」に明確化 (第 2 段階以降が存在しない曖昧表現を解消)
+  - 自ホスト名取得プロローグ (`gethostname` / `gethostbyname` / `inet_ntoa`、14 行) を関数頭から Defender case 内に移動
+  - SIDE_SELECT マジックナンバー (`x = 195, y = 200, gapY = 60`) を `SIDE_SELECT_*` 定数参照に置換
+- Defender 受信ログを `%ld>%s` 書式から Challenger と同じ `受信: %s` 書式に統一
+
+テスト: Debug|Win32 ビルド成功 (警告ゼロ、`Project2.exe` 生成)。動作不変リファクタなので 2 プロセステストは不要 (γ-2 で本番確認済、δ-2 は意味整合と書式統一のみ)。
+
+### フェーズ δ-3 (予定): ネット運用強化
 
 #### δ-3: ネット運用強化 (将来課題)
 
@@ -431,7 +445,7 @@ Workflow で 5 案 (A: 正規化 0〜100% / B: グレード制 / C: ハイブリ
 - **ネット系定数の GameMain.h 昇格** (Game4 等でネット対戦追加する時点で再判断)
 - **`netStatus` への caller 側エラー処理追加** (`moveGame2Scene` 内で `netBattle` 戻り値 -1 をユーザー通知)
 
-δ-2/δ-3 はそれぞれ独立着手可能。優先度は δ-2 > δ-3 (リファクタ仕上げ > 将来拡張)。
+δ-3 は将来課題。着手時はまず [SPEC_NETWORK.md](SPEC_NETWORK.md) を再読すること。
 
 ---
 
