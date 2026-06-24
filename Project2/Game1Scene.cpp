@@ -102,31 +102,31 @@ void renderGame1Scene(void)
 	//Rリセット可能であることを通知
 	if (status == TIMER_STATUS_DONE)
 	{
-		DrawString(30, 50, "Rキーでリセット", ColorWhite);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Rキーでリセット", ColorWhite);
 	}
 	else
 	{
-		DrawString(30, 50, "Gキーで開始、Sキーで停止", ColorWhite);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Gキーで開始、Sキーで停止", ColorWhite);
 	}
 
-	DrawString(30, 100, "Xボタンでタイトルに戻る", ColorWhite);
+	DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_BACK_TO_TITLE, "Xボタンでタイトルに戻る", ColorWhite);
 
 	//表示形式についてメモ：INTは整数型%dで問題なし。FLOATは実数型%fを使用
 	//なお、%3.1f＝合計3桁、小数第1位以内で実数表示という意味
-	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", state.RandomTgt, state.CalFrame);
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_TARGET, ColorWhite, "%3.1f秒でストップ！", state.RandomTgt, state.CalFrame);
 	//計測終了までは倍速非公開
 	if (status != TIMER_STATUS_DONE)
 	{
-		DrawString(30, 250, "ただいま：？.？倍速", ColorYellow);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, "ただいま：？.？倍速", ColorYellow);
 	}
 	else if (status == TIMER_STATUS_DONE)
 	{
-		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
+		DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
 	}
 
-	//フレーム値は÷60して表示すること！
-	DrawFormatString(30, 350, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / 60);
-	DrawFormatString(30, 400, ColorSkyLike, "スコア：%3.1f", state.Score);
+	//フレーム値は÷FPS して表示する (FrameTmp は CalMulti 加算済みの累積フレーム)
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_CURRENT_TIME, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / FPS);
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SCORE, ColorSkyLike, "スコア：%3.1f", state.Score);
 }
 
 //	シーン終了時の後処理

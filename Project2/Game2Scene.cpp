@@ -58,7 +58,7 @@ BOOL initGame2Scene(void)
 	status2 = GAME2_STATE_SIDE_SELECT;
 
 	//メニュー関係の初期化
-	SetFontSize(32);
+	SetFontSize(FONT_SIZE_DEFAULT);
 	ChangeFontType(DX_FONTTYPE_ANTIALIASING_EDGE_8X8);
 
 	selectedGame2 = 0;
@@ -342,11 +342,11 @@ void renderGame2Scene(void)
 	//Rリセット可能であることを通知
 	if (status2 == GAME2_STATE_DONE)
 	{
-		DrawString(30, 50, "Rキーでリセット、Nキーでネット対戦", ColorWhite);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Rキーでリセット、Nキーでネット対戦", ColorWhite);
 	}
 	else
 	{
-		DrawString(30, 50, "Gキーで開始、Sキーで停止", ColorWhite);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Gキーで開始、Sキーで停止", ColorWhite);
 	}
 
 	//ネット対戦を終えた場合：勝敗を判断し、表示する
@@ -361,43 +361,43 @@ void renderGame2Scene(void)
 		//自分のスコアより少ない場合
 		if (scJudge < Score2J)
 		{
-			DrawString(30, 50, "あなたの勝利です！", ColorSkyLike);
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "あなたの勝利です！", ColorSkyLike);
 		}
 		//同じ場合
 		else if (scJudge == Score2J)
 		{
-			DrawString(30, 50, "なんと…引き分け！", ColorYellow);
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "なんと…引き分け！", ColorYellow);
 		}
 		//自分のスコアより多い場合
 		else if (scJudge > Score2J)
 		{
-			DrawString(30, 50, "あなたの敗北です…", ColorBlue);
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "あなたの敗北です…", ColorBlue);
 		}
 	}
 
-	DrawString(30, 100, "Xボタンでタイトルに戻る", ColorWhite);
+	DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_BACK_TO_TITLE, "Xボタンでタイトルに戻る", ColorWhite);
 
 	//表示形式についてメモ：INTは整数型%dで問題なし。FLOATは実数型%fを使用
 	//なお、%3.1f＝合計3桁、小数第1位以内で実数表示という意味
-	DrawFormatString(30, 200, ColorWhite, "%3.1f秒でストップ！", state.RandomTgt, state.CalFrame);
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_TARGET, ColorWhite, "%3.1f秒でストップ！", state.RandomTgt, state.CalFrame);
 	//計測終了までは倍速非公開
 	if (status2 != GAME2_STATE_DONE)
 	{
-		DrawString(30, 250, "ただいま：？.？倍速", ColorYellow);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, "ただいま：？.？倍速", ColorYellow);
 	}
 	else if (status2 == GAME2_STATE_DONE)
 	{
-		DrawFormatString(30, 250, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
+		DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
 		//ネット上でのスコア交換が終わったならば、相手のスコアに表示を変える
 		if (netStatus == 2)
 		{
-			DrawFormatString(30, 250, ColorRed, "相手のスコアは%s", rcScore);
+			DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorRed, "相手のスコアは%s", rcScore);
 		}
 	}
 
-	//フレーム値は÷60して表示すること！
-	DrawFormatString(30, 350, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / 60);
-	DrawFormatString(30, 400, ColorSkyLike, "スコア：%3.1f点", state.Score);
+	//フレーム値は÷FPS して表示する (FrameTmp は CalMulti 加算済みの累積フレーム)
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_CURRENT_TIME, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / FPS);
+	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SCORE, ColorSkyLike, "スコア：%3.1f点", state.Score);
 }
 
 //	シーン終了時の後処理

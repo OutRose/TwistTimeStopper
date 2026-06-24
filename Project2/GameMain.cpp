@@ -38,7 +38,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	SetMainWindowText("TwistTime-Stopper 0.6");
 
 	//解像度変更：24ビットカラー
-	SetGraphMode(800, 700, 24);
+	SetGraphMode(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_BPP);
 
 	//背景色の設定
 	SetBackgroundColor(0, 0, 0);
@@ -69,7 +69,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 		ClearDrawScreen();
 
 		// １/６０秒立つまで待つ
-		while (GetNowCount() - FrameStartTime < 1000 / 60) {}
+		while (GetNowCount() - FrameStartTime < MS_PER_SEC / FPS) {}
 		// 現在のカウント値を保存
 		FrameStartTime = GetNowCount();
 		// 入力状態を更新

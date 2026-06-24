@@ -15,7 +15,7 @@ extern int Input, EdgeInput;
 
 //シーン開始前の初期化を行う
 BOOL initMenuScene(void) {
-	SetFontSize(32);
+	SetFontSize(FONT_SIZE_DEFAULT);
 	ChangeFontType(DX_FONTTYPE_ANTIALIASING_EDGE_8X8);
 
 	selectedGame = 0;
@@ -52,9 +52,9 @@ void moveMenuScene() {
 
 //レンダリング処理
 void renderMenuScene(void) {
-	DrawString(85, 50, "ねじれストップウォッチ（仮）", ColorWhite);
-	DrawString(215, 100, "Version 0.6", ColorWhite);
-	DrawString(85, 400, "Zキーで決定、ESCキーで終了", ColorWhite);
+	DrawString(MENU_X_TITLE, MENU_Y_TITLE, "ねじれストップウォッチ（仮）", ColorWhite);
+	DrawString(MENU_X_VERSION, MENU_Y_VERSION, "Version 0.6", ColorWhite);
+	DrawString(MENU_X_HINT, MENU_Y_HINT, "Zキーで決定、ESCキーで終了", ColorWhite);
 
 	//６(2) メニュー項目の表示
 	int x = 195, y = 200, gapY = 80;	//（x,y)：表示開始座標　gapY：行の高さ

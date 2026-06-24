@@ -7,6 +7,19 @@
 #include "Game3Scene.h"
 #include "MenuScene.h"
 
+//タイマー乱数定数 (timerReset 専用、ファイルスコープに閉じる)
+//目標時間: GetRand(19)+1 = 1〜19秒の乱数 (整数)
+#define RANDOM_TARGET_RANGE   19     //GetRand に渡す範囲 (0〜18 を生成)
+#define RANDOM_TARGET_OFFSET  1      //最短目標秒数 (= 1秒スタート)
+
+//倍速値: GetRand(39)+10 = 10〜48 を /10 で 1.0〜4.8 倍に変換
+#define RANDOM_SPEED_RANGE    39     //GetRand に渡す範囲 (0〜38 を生成)
+#define RANDOM_SPEED_OFFSET   10     //最小倍速 ×10 (= 1.0倍始まり)
+#define SPEED_MULT_DIVISOR    10     //倍速を実数化する除数
+
+//スコア計算定数 (timerCalcScore 専用)
+#define PERFECT_BONUS_RATIO   1.25f  //目標ピッタリ時のスコア倍率 (ボーナス)
+
 //このファイル内だけで使用する関数のプロトタイプ宣言
 //現在のシーンの初期化処理 (BOOL: 成功 TRUE / 失敗 FALSE、FrameMove 内のフォールバック判定で参照)
 BOOL initCurrentScene(void);
@@ -46,13 +59,13 @@ static BOOL isValidSceneIndex(SCENE_NO no) {
 
 //タイマー状態を乱数初期化 (Game1Scene/Game2Scene 共通)
 void timerReset(TIMER_STATE* state) {
-	//目標時間をセット (1〜20秒の乱数)、フレーム換算
-	state->RandomTgt = (float)(GetRand(19) + 1);
-	state->CalFrame = state->RandomTgt * 60;
+	//目標時間をセット (1〜19秒の整数乱数)、FPS でフレーム換算
+	state->RandomTgt = (float)(GetRand(RANDOM_TARGET_RANGE) + RANDOM_TARGET_OFFSET);
+	state->CalFrame = state->RandomTgt * FPS;
 
-	//倍速値をセット (1.0〜4.9倍の乱数)、10で除して倍率に変換
-	state->RandomMtp = (float)(GetRand(39) + 10);
-	state->CalMulti = state->RandomMtp / 10;
+	//倍速値をセット (10〜48 を /10 で 1.0〜4.8 倍に変換)
+	state->RandomMtp = (float)(GetRand(RANDOM_SPEED_RANGE) + RANDOM_SPEED_OFFSET);
+	state->CalMulti = state->RandomMtp / SPEED_MULT_DIVISOR;
 }
 
 //計測終了時のスコア計算 (Game1Scene/Game2Scene 共通)
@@ -74,7 +87,7 @@ void timerCalcScore(TIMER_STATE* state) {
 	else if (state->CalFrame == state->FrameTmp)//目標ピッタリ！？
 	{
 		//フレーム単位で合わせるとは油断ならぬ。ボーナス！
-		state->Score = state->CalFrame * 1.25f;
+		state->Score = state->CalFrame * PERFECT_BONUS_RATIO;
 	}
 }
 
