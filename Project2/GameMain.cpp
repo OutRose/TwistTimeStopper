@@ -35,7 +35,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//Check:実行中に画面の大きさが変更可能か
 	SetWindowSizeChangeEnableFlag(true);
 	//ウィンドウタイトル
-	SetMainWindowText("TwistTime-Stopper 0.9.2");
+	SetMainWindowText("TwistTime-Stopper 0.9.3");
 
 	//解像度変更：24ビットカラー
 	SetGraphMode(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_BPP);

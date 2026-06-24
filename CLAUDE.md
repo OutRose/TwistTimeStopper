@@ -428,24 +428,37 @@ Workflow で 5 案 (A: 正規化 0〜100% / B: グレード制 / C: ハイブリ
 
 テスト: Debug|Win32 ビルド成功 (警告ゼロ、`Project2.exe` 生成)。動作不変リファクタなので 2 プロセステストは不要 (γ-2 で本番確認済、δ-2 は意味整合と書式統一のみ)。
 
-### フェーズ δ-3 (予定): ネット運用強化
+### フェーズ δ-3a: ネット運用強化 (機械的整理パート、完了 2026-06-25)
 
-#### δ-3: ネット運用強化 (将来課題)
+スコープ膨張防止のため δ-3 を 2 分割。δ-3a は本体改修 (δ-3b、non-blocking + state machine + UI) の足場を整える機械的整理。動作不変リファクタ + 既存プロトコルへのプレフィックス追加 (互換性は維持しないバージョン断絶でユーザー合意)。
 
-**詳細仕様**: [SPEC_NETWORK.md](SPEC_NETWORK.md) (2026-06-24 作成、non-blocking socket + 7 状態 NET_STATUS + プレフィックス付きデータフォーマット (`SCORE:%.2f` / `END` / `BYEBYE`) + SIDE_SELECT リネーム等の目標仕様を整理)。δ-3 着手時はまず本仕様を再読すること。
+採用判断 (ユーザー選択、δ-3 全体方針):
+- スコープ分割: **2 分割 (δ-3a 機械的整理 / δ-3b 本体改修)** (1 コミットで全部やる案は回帰リスク高で却下)
+- タイムアウト: **30 秒** (SPEC_NETWORK.md デフォルト、δ-3b で実装)
+- エラー復帰タイミング: **エラー画面 + Z/X キー押下で手動確認後にメニュー遷移** (δ-3b で実装)
+- メジャーバージョン: **据え置き** (δ-3b 完了でも `1.0.0` ではなく `0.10.0`、正式リリース判断はまだ先)
 
-- **同期通信の非同期化** (Defender accept 中フリーズ問題、`ioctlsocket FIONBIO` + `select` ベースの polling 構成、SPEC_NETWORK.md §8 参照)
-- **NET_STATUS の 7 状態拡張** (INIT/CONNECTED/SENT/RECEIVED/EXCHANGED/ENDING/END、γ-3 の 3 値版を細分化、SPEC_NETWORK.md §9 参照)
-- **データフォーマット導入** (`SCORE:%.2f` / `END` / `BYEBYE` プレフィックス付き文字列、SPEC_NETWORK.md §5 参照)
-- **SIDE_SELECT リネーム** (`NET_SIDE_CHALLENGER/DEFENDER` → `SIDE_SELECT_CLIENT/SERVER` 技術用語統一、SPEC_NETWORK.md §10 参照)
-- **エラー画面 + メニュー復帰** (リトライなし、`MyOutputDebugString` + 画面表示 + `changeScene(SCENE_MENU)`、SPEC_NETWORK.md §7 参照)
-- **タイムアウト** (一定時間 (例 30 秒) 進展なしで強制終了)
-- **`'localhost'` リテラルの定数化** (現状 1 箇所固定、過剰設計だが任意 NIC への拡張時に必要)
-- **Winsock 2.2 アップグレード** (`MAKEWORD(2, 2)`、現状 1.1 で動作中)
-- **ネット系定数の GameMain.h 昇格** (Game4 等でネット対戦追加する時点で再判断)
-- **`netStatus` への caller 側エラー処理追加** (`moveGame2Scene` 内で `netBattle` 戻り値 -1 をユーザー通知)
+実装内容 (全て [Game2Scene.cpp](Project2/Game2Scene.cpp)):
+- **WinSock 2.2 アップグレード**: `<winsock.h>` → `<winsock2.h>` (Windows.h より前にインクルード、二重定義衝突回避)、`wsock32.lib` → `ws2_32.lib`、`MAKEWORD(1, 1)` → `MAKEWORD(2, 2)`
+- **NET_STATUS 7 値拡張** (SPEC_NETWORK.md §9 準拠): 旧 3 値 (INIT/WAITING/RECEIVED) を新 7 値 (INIT/CONNECTED/SENT/RECEIVED/EXCHANGED/ENDING/END) に拡張。旧 RECEIVED (= 2、γ-3 の「双方完了」意味) を新 EXCHANGED (= 4) にリマップ (§9.3 マッピング表通り)。残り 5 値は δ-3b で使用開始
+- **SIDE_SELECT リネーム**: `_NET_SIDE` → `_SIDE_SELECT` 型名変更。`NET_SIDE_CHALLENGER` → `SIDE_SELECT_CLIENT`、`NET_SIDE_DEFENDER` → `SIDE_SELECT_SERVER`、`NET_SIDE_UNSELECTED` → `SIDE_SELECT_NONE`。WinSock デバッグログ内の役割名 ("Challenger" / "Defender") も "Client" / "Server" に更新
+- **データフォーマット導入** (SPEC_NETWORK.md §5 準拠): `NET_MSG_PREFIX_SCORE "SCORE:"` / `NET_PREFIX_LEN_SCORE 6` / `NET_MSG_END "END"` / `NET_MSG_BYEBYE "BYEBYE"` 定数追加。送信を `snprintf("%s%.2f", NET_MSG_PREFIX_SCORE, state.Score)` 化、受信を `strncmp` で `"SCORE:"` プレフィックス判定 + ペイロード `strtof` パース。END/BYEBYE は定数のみで使用は δ-3b
+- **NET_TARGET_HOST 定数化**: `"localhost"` ハードコードを `NET_TARGET_HOST` 定数経由に変更。`szServer` 初期化は `strncpy` + NUL ターミネートで明示
+- **netBattle caller 戻り値検査**: `moveGame2Scene` の N キー押下処理で `netBattle` 戻り値 -1 を検知してログ出力 (UI 表示は δ-3b)
 
-δ-3 は将来課題。着手時はまず [SPEC_NETWORK.md](SPEC_NETWORK.md) を再読すること。
+テスト: Debug|Win32 ビルド成功 (警告ゼロ)。動作確認は γ-2 の 2 プロセステスト手順を引き継ぎ可能 (プロトコルは旧 `%f` → 新 `SCORE:%.2f` に変わったが、双方とも新版なら整合)。
+
+#### δ-3b: ネット運用強化 (本体改修、未着手)
+
+δ-3a の足場の上に、ゲームループとのインターリーブを根本的に書き換える本体改修を実装する。完了時に **0.10.0 = フェーズ δ 完了**。
+
+- **同期通信の非同期化** (Server accept 中フリーズ問題、`ioctlsocket FIONBIO` + `select` ベースの polling 構成、SPEC_NETWORK.md §8 参照)
+- **netBattle の分解 → moveGame2Scene への state machine 統合** (フレームをまたいで NET_STATUS が遷移)
+- **NET_STATUS 5 状態の活用開始** (CONNECTED/SENT/RECEIVED/ENDING/END)
+- **END/BYEBYE 終了通知の送受信** (SPEC_NETWORK.md §5)
+- **エラー画面 + メニュー復帰** (Z/X キー押下で `changeScene(SCENE_MENU)`、SPEC_NETWORK.md §7 参照)
+- **タイムアウト 30 秒** (一定時間進展なしで `netStatus = END` 強制遷移)
+- **ネット系定数の GameMain.h 昇格** (Game4 等でネット対戦追加する時点で再判断、δ-3b では Game2Scene 内のまま)
 
 ---
 

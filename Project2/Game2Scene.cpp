@@ -1,10 +1,12 @@
-﻿#include "GameMain.h"
+﻿//δ-3a: WinSock 2.2 アップグレード。winsock2.h は必ず Windows.h より前にインクルードする
+//(GameMain.h → Windows.h と winsock.h の二重定義衝突を回避するため、最上段で先行 include)
+#include <winsock2.h>
+#include "GameMain.h"
 #include "GameSceneMain.h"
 #include "Game2Scene.h"
 #include <math.h>
 #include <string.h>
-#include <winsock.h>
-#pragma comment(lib, "wsock32.lib")
+#pragma comment(lib, "ws2_32.lib")	//δ-3a: wsock32.lib (1.1) → ws2_32.lib (2.x) に切り替え
 #define _CRT_SECURE_NO_WARNINGS
 
 //MyOutputDebugString マクロは GameMain.h に昇格済み (Game2Scene 専用ではなくなったため)
@@ -13,7 +15,18 @@
 #define NET_PORT             3500            //通信用 TCP ポート番号
 #define NET_BUF_SIZE         256             //送受信バッファサイズ (szBuf/rcScore)
 #define SERVER_NAME_SIZE     128             //接続先ホスト名バッファサイズ (szServer)
-#define WINSOCK_VERSION_REQ  MAKEWORD(1, 1)  //要求する WinSock バージョン (1.1)
+#define WINSOCK_VERSION_REQ  MAKEWORD(2, 2)  //δ-3a: 要求する WinSock バージョン (2.2 へアップグレード)
+
+//接続先ホスト (δ-3a: "localhost" リテラルを定数化、将来の任意 IP 拡張時に 1 箇所変更で済む)
+#define NET_TARGET_HOST      "localhost"
+
+//データフォーマット定数 (δ-3a、SPEC_NETWORK.md §5 準拠)
+//送信: snprintf(szBuf, NET_BUF_SIZE, "%s%.2f", NET_MSG_PREFIX_SCORE, state.Score)
+//受信パース: 先頭 NET_PREFIX_LEN_SCORE バイトが "SCORE:" ならスコア、"END"/"BYEBYE" なら終了通知
+#define NET_MSG_PREFIX_SCORE "SCORE:"        //スコア送信のプレフィックス
+#define NET_PREFIX_LEN_SCORE 6               //strlen("SCORE:")、strncmp 比較長さ用
+#define NET_MSG_END          "END"           //通常終了通知 (δ-3b で state machine と連動使用)
+#define NET_MSG_BYEBYE       "BYEBYE"        //異常終了通知 (δ-3b で state machine と連動使用)
 
 #define MENU_MAX_G 2
 //SIDE_SELECT メニュー項目 (δ-2: 未使用 3 要素目 "" を削除し MENU_MAX_G と要素数を一致)
@@ -44,31 +57,37 @@ typedef enum _GAME2_STATE {
 
 GAME2_STATE status2 = GAME2_STATE_SIDE_SELECT;
 
-//ネットワーク対戦のステータス (γ-3 で enum 化、β-C-4 連動)
+//ネットワーク対戦のステータス (γ-3 で enum 化、δ-3a で 7 値に拡張、SPEC_NETWORK.md §9 準拠)
+//δ-3a 時点では従来の同期 netBattle 内で INIT → EXCHANGED の 2 値遷移のみ使用。
+//残り 5 値 (CONNECTED/SENT/RECEIVED/ENDING/END) は δ-3b の non-blocking + state machine 化で利用予定。
 typedef enum _NET_STATUS {
-	NET_STATUS_INIT     = 0,	//初期状態 (受信前)
-	NET_STATUS_WAITING  = 1,	//接続待機モード (現状未使用、将来の非同期化布石)
-	NET_STATUS_RECEIVED = 2		//受信完了 (= 勝敗判定可能)
+	NET_STATUS_INIT      = 0,	//接続未確立 (γ-3 既存、シーン入場直後の状態)
+	NET_STATUS_CONNECTED = 1,	//接続確立済み、両者未送信未受信 (γ-3 WAITING の意味再定義、δ-3b で使用開始)
+	NET_STATUS_SENT      = 2,	//自分は送信完了、相手から未受信 (δ-3b で使用開始)
+	NET_STATUS_RECEIVED  = 3,	//相手から受信完了、自分は未送信 (δ-3b で使用開始、γ-3 とは値が異なる)
+	NET_STATUS_EXCHANGED = 4,	//双方の送受信完了、勝敗判定可能 (γ-3 RECEIVED=2 の意味再割り当て先)
+	NET_STATUS_ENDING    = 5,	//終了通知 (END/BYEBYE) の送受信中 (δ-3b で使用開始)
+	NET_STATUS_END       = 6	//切断完了、メニュー復帰待ち (δ-3b で使用開始)
 } NET_STATUS;
 
 NET_STATUS netStatus = NET_STATUS_INIT;
 
-//ネットワーク対戦の役割 (Game2 専用、詳細は下記 NET_SIDE enum 参照)
+//ネットワーク対戦の役割 (Game2 専用、詳細は下記 SIDE_SELECT enum 参照、δ-3a で技術用語に統一)
 //現状は Game2Scene 内のみで使用、将来別シーンで再利用する場合は GameSceneMain.h へ昇格を検討
-typedef enum _NET_SIDE {
-	NET_SIDE_CHALLENGER = 0,		// 挑む側 (先に送信するクライアント、socket→connect→send)
-	NET_SIDE_DEFENDER = 1,			// 挑まれる側 (受信するサーバー、socket→bind→listen→accept→recv)
-	NET_SIDE_UNSELECTED = 2			// 未選択 (シーン入場直後の初期状態)
-} NET_SIDE;
+typedef enum _SIDE_SELECT {
+	SIDE_SELECT_CLIENT = 0,			// 送信側 = クライアント (後から接続、socket→connect→send、γ-3 までの CHALLENGER 相当)
+	SIDE_SELECT_SERVER = 1,			// 受信側 = サーバー (先に接続待機、socket→bind→listen→accept→recv、γ-3 までの DEFENDER 相当)
+	SIDE_SELECT_NONE   = 2			// 未選択 (シーン入場直後の初期状態)
+} SIDE_SELECT;
 
-NET_SIDE sideSelect = NET_SIDE_UNSELECTED;
+SIDE_SELECT sideSelect = SIDE_SELECT_NONE;
 
 // シーン開始前の初期化を行う
 BOOL initGame2Scene(void)
 {
 	//入るときは必ずリセット
 	status2 = GAME2_STATE_SIDE_SELECT;
-	sideSelect = NET_SIDE_UNSELECTED;
+	sideSelect = SIDE_SELECT_NONE;
 	netStatus = NET_STATUS_INIT;
 
 	//WinSock 初期化 (γ-2-c: シーン寿命に合わせて init/release ペアリング、netBattle 内呼び出しを移管)
@@ -103,14 +122,16 @@ int netBattle(float score)
 	//これより、送受信どちらかを選んだかにより処理が変化する
 	switch (sideSelect)
 	{
-		//こちらが送信側 (Challenger): socket → connect → send → recv → netStatus=RECEIVED → closesocket
-		case NET_SIDE_CHALLENGER: {
+		//こちらが送信側 (Client = 旧 Challenger): socket → connect → send → recv → netStatus=EXCHANGED → closesocket
+		case SIDE_SELECT_CLIENT: {
 			LPHOSTENT	lpHostEntry;
 			SOCKET		s;
 			SOCKADDR_IN saCl;
 			short		nPort = NET_PORT;	//通信に使用するポート番号
-			//接続先をローカルホストに限定する
-			char		szServer[SERVER_NAME_SIZE] = "localhost";
+			//接続先 (δ-3a: ハードコード "localhost" を NET_TARGET_HOST 定数経由に変更)
+			char		szServer[SERVER_NAME_SIZE];
+			strncpy(szServer, NET_TARGET_HOST, SERVER_NAME_SIZE - 1);
+			szServer[SERVER_NAME_SIZE - 1] = '\0';
 
 			MyOutputDebugString(_T("\n %sの確認中です…"), szServer);
 			lpHostEntry = gethostbyname(szServer);
@@ -125,7 +146,7 @@ int netBattle(float score)
 			s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 			if (s == INVALID_SOCKET)
 			{
-				MyOutputDebugString(_T("socket failed for Challenger (err=%d)\n"), WSAGetLastError());
+				MyOutputDebugString(_T("socket failed for Client (err=%d)\n"), WSAGetLastError());
 				return -1;
 			}
 
@@ -141,44 +162,44 @@ int netBattle(float score)
 				return -1;
 			}
 
-			//自スコアを文字列化して送信 (γ-2-b バグ #1 修正: remS → s)
-			snprintf(szBuf, NET_BUF_SIZE, "%f", state.Score);
+			//自スコアを文字列化して送信 (δ-3a: SCORE: プレフィックス + %.2f 整形)
+			snprintf(szBuf, NET_BUF_SIZE, "%s%.2f", NET_MSG_PREFIX_SCORE, state.Score);
 			nRet = send(s, szBuf, strlen(szBuf), 0);
 			if (nRet == SOCKET_ERROR)
 			{
-				MyOutputDebugString(_T("send failed for Challenger (err=%d)\n"), WSAGetLastError());
+				MyOutputDebugString(_T("send failed for Client (err=%d)\n"), WSAGetLastError());
 				closesocket(s);
 				return -1;
 			}
 			MyOutputDebugString(_T("送信: %s\n"), szBuf);
 
-			//相手スコア受信 (γ-2-b バグ #4: 双方向交換のため Challenger に recv 追加)
+			//相手スコア受信 (γ-2-b バグ #4: 双方向交換のため Client にも recv 追加)
 			memset(szBuf, 0, sizeof(szBuf));
 			nRet = recv(s, szBuf, sizeof(szBuf), 0);
 			if (nRet == SOCKET_ERROR)
 			{
-				MyOutputDebugString(_T("recv failed for Challenger (err=%d)\n"), WSAGetLastError());
+				MyOutputDebugString(_T("recv failed for Client (err=%d)\n"), WSAGetLastError());
 				closesocket(s);
 				return -1;
 			}
 			//受信した相手のスコアを格納する (γ-3: for ループから memcpy 化、可読性 + 性能)
 			memcpy(rcScore, szBuf, NET_BUF_SIZE);
-			//γ-2-b バグ #3: netStatus 遷移追加 (受信完了 = 勝敗判定可能)
-			netStatus = NET_STATUS_RECEIVED;
+			//δ-3a: γ-3 では RECEIVED で完了扱いだったが、新 7 値 enum では「双方交換完了」= EXCHANGED に意味再割り当て
+			netStatus = NET_STATUS_EXCHANGED;
 			MyOutputDebugString(_T("受信: %s\n"), szBuf);
 
 			//γ-2-c: closesocket でリソース解放 (旧コードは漏れていた)
 			closesocket(s);
 			break;
 		}
-		//こちらが受信側 (Defender): socket → bind → listen → accept → recv → send → netStatus=RECEIVED → closesocket
-		case NET_SIDE_DEFENDER: {
-			SOCKET		lisS = INVALID_SOCKET;	//listen 用ソケット (Defender 専用)
+		//こちらが受信側 (Server = 旧 Defender): socket → bind → listen → accept → recv → send → netStatus=EXCHANGED → closesocket
+		case SIDE_SELECT_SERVER: {
+			SOCKET		lisS = INVALID_SOCKET;	//listen 用ソケット (Server 専用)
 			SOCKADDR_IN saSv;
 			short		nPort = NET_PORT;
 
-			//Defender 専用: 自ホスト名/IP をデバッグ出力 (δ-2、どこで listen 待機しているか確認用)
-			//Challenger 側は localhost 接続のため自ホスト情報は不要、関数頭の共通プロローグから移動
+			//Server 専用: 自ホスト名/IP をデバッグ出力 (δ-2、どこで listen 待機しているか確認用)
+			//Client 側は localhost 接続のため自ホスト情報は不要、関数頭の共通プロローグから移動
 			nRet = gethostname(szBuf, sizeof(szBuf));
 			if (nRet == SOCKET_ERROR)
 			{
@@ -194,12 +215,12 @@ int netBattle(float score)
 			MyOutputDebugString(_T("\n PC info: %s or %s\n"),
 				szBuf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
 
-			//γ-2-b 構造整理 #5: socket+bind+listen+accept を Defender case 内に集約
-			//(Challenger では使わないリソースなので関数頭から移動)
+			//γ-2-b 構造整理 #5: socket+bind+listen+accept を Server case 内に集約
+			//(Client では使わないリソースなので関数頭から移動)
 			lisS = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 			if (lisS == INVALID_SOCKET)
 			{
-				MyOutputDebugString(_T("socket failed for Defender (err=%d)\n"), WSAGetLastError());
+				MyOutputDebugString(_T("socket failed for Server (err=%d)\n"), WSAGetLastError());
 				return -1;
 			}
 			saSv.sin_family = AF_INET;
@@ -238,32 +259,32 @@ int netBattle(float score)
 			nRet = recv(remS, szBuf, sizeof(szBuf), 0);
 			if (nRet == SOCKET_ERROR)
 			{
-				MyOutputDebugString(_T("recv failed for Defender (err=%d)\n"), WSAGetLastError());
+				MyOutputDebugString(_T("recv failed for Server (err=%d)\n"), WSAGetLastError());
 				closesocket(remS);
 				closesocket(lisS);
 				return -1;
 			}
-			//δ-2: cnt 変数 + "%ld>%s" 書式を撤去し Challenger と同じ "受信: %s" 書式に統一
+			//δ-2: cnt 変数 + "%ld>%s" 書式を撤去し Client と同じ "受信: %s" 書式に統一
 			MyOutputDebugString(_T("受信: %s\n"), szBuf);
 
 			//受信した相手のスコアを格納する (γ-3: for ループから memcpy 化、可読性 + 性能)
 			memcpy(rcScore, szBuf, NET_BUF_SIZE);
 
-			//自スコアを文字列化して送信 (γ-2-b バグ #4: 双方向交換のため Defender に send 追加)
-			snprintf(szBuf, NET_BUF_SIZE, "%f", state.Score);
+			//自スコアを文字列化して送信 (δ-3a: SCORE: プレフィックス + %.2f 整形)
+			snprintf(szBuf, NET_BUF_SIZE, "%s%.2f", NET_MSG_PREFIX_SCORE, state.Score);
 			nRet = send(remS, szBuf, strlen(szBuf), 0);
 			if (nRet == SOCKET_ERROR)
 			{
-				MyOutputDebugString(_T("send failed for Defender (err=%d)\n"), WSAGetLastError());
+				MyOutputDebugString(_T("send failed for Server (err=%d)\n"), WSAGetLastError());
 				closesocket(remS);
 				closesocket(lisS);
 				return -1;
 			}
-			//γ-2-b バグ #3: netStatus 遷移追加 (送受信完了 = 勝敗判定可能)
-			netStatus = NET_STATUS_RECEIVED;
+			//δ-3a: γ-3 では RECEIVED で完了扱いだったが、新 7 値 enum では「双方交換完了」= EXCHANGED に意味再割り当て
+			netStatus = NET_STATUS_EXCHANGED;
 			MyOutputDebugString(_T("送信: %s\n"), szBuf);
 
-			//γ-2-c: closesocket でリソース解放 (lisS は Defender 専用、両方解放、LIFO 順)
+			//γ-2-c: closesocket でリソース解放 (lisS は Server 専用、両方解放、LIFO 順)
 			closesocket(remS);
 			closesocket(lisS);
 			break;
@@ -348,8 +369,12 @@ void moveGame2Scene()
 		//Nキーでネットワーク対戦をする
 		if (CheckHitKey(KEY_INPUT_N) == 1)
 		{
-			//自分のスコアを送信する
-			netBattle(state.Score);
+			//δ-3a: caller でネット対戦の戻り値を検査 (失敗時のログ確認の土台、UI 表示は δ-3b で追加)
+			//現状は同期 netBattle なので、ここでブロックして戻ってくるまで全画面凍結する点は δ-3b で解消予定
+			if (netBattle(state.Score) != 0)
+			{
+				MyOutputDebugString(_T("netBattle failed, see preceding log for WSA error code\n"));
+			}
 		}
 
 		break;
@@ -381,10 +406,10 @@ void moveGame2Scene()
 		//７(3) 新たにボタン１が押されたら決定
 		if ((EdgeInput & PAD_INPUT_1))
 		{
-			//0が選ばれたら送信者、1が選ばれたら受信者
+			//0 が選ばれたら Client (送信側)、1 が選ばれたら Server (受信側) (δ-3a で SIDE_SELECT に統一)
 			//この後、ステータスをゲーム本編に移す
-			if (selectedGame2 == 0)sideSelect = NET_SIDE_CHALLENGER;
-			else if (selectedGame2 == 1)sideSelect = NET_SIDE_DEFENDER;
+			if (selectedGame2 == 0)sideSelect = SIDE_SELECT_CLIENT;
+			else if (selectedGame2 == 1)sideSelect = SIDE_SELECT_SERVER;
 			status2 = GAME2_STATE_INIT;
 		}
 
@@ -433,10 +458,16 @@ void renderGame2Scene(void)
 	}
 
 	//ネット対戦を終えた場合：勝敗を判断し、表示する
-	if (netStatus == NET_STATUS_RECEIVED)
+	if (netStatus == NET_STATUS_EXCHANGED)
 	{
 		//受信したスコアを浮動小数点数に戻す (双方 0〜100 の正規化達成率、δ-1 以降)
-		float scJudge = strtof(rcScore, NULL);
+		//δ-3a: "SCORE:" プレフィックスを剥がして数値部だけ strtof でパース。プレフィックス無しは旧プロトコル互換扱いで全文字列をパース
+		const char* scorePayload = rcScore;
+		if (strncmp(rcScore, NET_MSG_PREFIX_SCORE, NET_PREFIX_LEN_SCORE) == 0)
+		{
+			scorePayload = rcScore + NET_PREFIX_LEN_SCORE;
+		}
+		float scJudge = strtof(scorePayload, NULL);
 
 		//floorf 整数化は δ-1 で除去 (0〜100 スケールに縮小したため、95.7 vs 95.3 が同点扱いになり粒度が粗すぎる)。
 		//float 直接比較に変更。引き分けは事実上ピッタリ同点のみ。
@@ -471,7 +502,7 @@ void renderGame2Scene(void)
 	{
 		DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
 		//ネット上でのスコア交換が終わったならば、相手のスコアに表示を変える
-		if (netStatus == NET_STATUS_RECEIVED)
+		if (netStatus == NET_STATUS_EXCHANGED)
 		{
 			DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorRed, "相手のスコアは%s", rcScore);
 		}

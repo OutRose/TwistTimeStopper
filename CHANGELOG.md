@@ -6,6 +6,24 @@
 
 ---
 
+## [0.9.3] - 2026-06-25
+
+### Changed
+- **δ-3a**: ネット運用強化の機械的整理パート。本体改修 (δ-3b、non-blocking + state machine) の足場を整える
+- WinSock を 1.1 → 2.2 へアップグレード (`MAKEWORD(2, 2)` / `<winsock2.h>` / `ws2_32.lib`)。将来 `getaddrinfo` 等の WinSock 2 API を使う場合に備えて土台統一
+- `NET_STATUS` enum を 3 値 (INIT/WAITING/RECEIVED) から 7 値 (INIT/CONNECTED/SENT/RECEIVED/EXCHANGED/ENDING/END) に拡張 (SPEC_NETWORK.md §9 準拠、δ-3b で残り 5 値を使用開始)
+- 旧 `NET_STATUS_RECEIVED (= 2)` (γ-3 では「双方送受信完了」の意味) を新 `NET_STATUS_EXCHANGED (= 4)` に意味リマップ (SPEC §9.3 マッピング表通り)
+- `NET_SIDE` enum を `SIDE_SELECT` enum にリネーム (`NET_SIDE_CHALLENGER` → `SIDE_SELECT_CLIENT` / `NET_SIDE_DEFENDER` → `SIDE_SELECT_SERVER` / `NET_SIDE_UNSELECTED` → `SIDE_SELECT_NONE`、技術用語に統一)
+- スコア送信書式を `"%f"` から `"SCORE:%.2f"` (プレフィックス付き、δ-3 のデータフォーマット) に変更。受信側は `strncmp` で `"SCORE:"` プレフィックスを判別しペイロードを `strtof` でパース
+- `netBattle` の caller 側 (`moveGame2Scene` の N キー押下処理) で戻り値検査を追加。失敗時に `MyOutputDebugString` でログ出力 (UI 表示は δ-3b で追加予定)
+- WinSock デバッグログ内の役割名 ("Challenger" / "Defender") を新名称 ("Client" / "Server") に更新
+
+### Added
+- `NET_TARGET_HOST "localhost"` 定数 (将来の任意 IP 拡張時に 1 箇所変更で済む)
+- データフォーマット定数 `NET_MSG_PREFIX_SCORE "SCORE:"` / `NET_PREFIX_LEN_SCORE 6` / `NET_MSG_END "END"` / `NET_MSG_BYEBYE "BYEBYE"` (END/BYEBYE は δ-3b の state machine と連動使用)
+
+---
+
 ## [0.9.2] - 2026-06-25
 
 ### Changed
