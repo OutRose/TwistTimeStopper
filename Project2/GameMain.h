@@ -49,6 +49,9 @@ extern unsigned int ColorWhite, ColorRed, ColorGreen, ColorBlue, ColorYellow, Co
 #define LAYOUT_Y_SPEED          250  //倍速表示 (Game2 はネット相手スコアも同位置で兼用)
 #define LAYOUT_Y_CURRENT_TIME   350  //現在の経過時間
 #define LAYOUT_Y_SCORE          400  //最終スコア
+//PERFECT! 演出の X オフセット (LAYOUT_X_DEFAULT からの相対値、Y は LAYOUT_Y_SCORE と同行)
+//δ-1 で追加。スコア "100.0" 終端 (約 238px) を回避し、満点時にも文字が被らない位置に置く
+#define LAYOUT_X_PERFECT_OFFSET 280
 
 //メニュー画面専用レイアウト座標 (タイトル / バージョン / ヒント)
 #define MENU_X_TITLE      85

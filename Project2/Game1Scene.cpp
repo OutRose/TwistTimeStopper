@@ -126,7 +126,14 @@ void renderGame1Scene(void)
 
 	//フレーム値は÷FPS して表示する (FrameTmp は CalMulti 加算済みの累積フレーム)
 	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_CURRENT_TIME, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / FPS);
+	//スコアは 0〜100 の正規化達成率 (δ-1 で再設計、目標時間によらず満点 100 固定)
 	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SCORE, ColorSkyLike, "スコア：%3.1f", state.Score);
+
+	//ピッタリ達成時のみ "PERFECT!" を演出表示 (δ-1、スコア式は連続関数のまま、不連続段差は描画側に分離)
+	if (state.IsPerfect == TRUE && status == TIMER_STATUS_DONE)
+	{
+		DrawString(LAYOUT_X_DEFAULT + LAYOUT_X_PERFECT_OFFSET, LAYOUT_Y_SCORE, "PERFECT!", ColorRed);
+	}
 }
 
 //	シーン終了時の後処理

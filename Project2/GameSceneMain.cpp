@@ -1,5 +1,6 @@
 ﻿#include "GameSceneMain.h"
 #include <assert.h>		//changeScene 範囲外チェックのアサート用 (Debug ビルドでのみ発火)
+#include <math.h>		//timerCalcScore で fabsf を使用 (δ-1 新スコア式の誤差絶対値)
 
 //全てのシーンのヘッダファイルをインクルードする
 #include "Game1Scene.h"
@@ -18,8 +19,13 @@
 #define RANDOM_SPEED_OFFSET   10     //最小倍速 ×10 (= 1.0倍始まり)
 #define SPEED_MULT_DIVISOR    10     //倍速を実数化する除数
 
-//スコア計算定数 (timerCalcScore 専用)
-#define PERFECT_BONUS_RATIO   1.25f  //目標ピッタリ時のスコア倍率 (ボーナス)
+//スコア計算定数 (timerCalcScore 専用、δ-1 で再設計)
+//正規化スコア (0〜100) の満点。目標時間 (RandomTgt) が 1 秒でも 19 秒でも満点は常に 100。
+#define SCORE_MAX_RATE          100.0f
+//ピッタリ判定のしきい値 (スコア基準)。Score 表示書式 %3.1f で "100.0" と見える条件と完全一致させる
+//(99.95 以上は四捨五入で 100.0 表示)。画面に見える数値と PERFECT 表示がずれないため違和感ゼロ。
+//倍速 4.8 や長目標では事実上「フレーム単位ピッタリ」のみ到達可能となり、PERFECT の希少価値も担保。
+#define PERFECT_SCORE_THRESHOLD 99.95f
 
 //このファイル内だけで使用する関数のプロトタイプ宣言
 //現在のシーンの初期化処理 (BOOL: 成功 TRUE / 失敗 FALSE、FrameMove 内のフォールバック判定で参照)
@@ -68,29 +74,34 @@ void timerReset(TIMER_STATE* state) {
 	//倍速値をセット (10〜48 を /10 で 1.0〜4.8 倍に変換)
 	state->RandomMtp = (float)(GetRand(RANDOM_SPEED_RANGE) + RANDOM_SPEED_OFFSET);
 	state->CalMulti = state->RandomMtp / SPEED_MULT_DIVISOR;
+
+	//ピッタリフラグもリセット (前ラウンドの達成状態を持ち越さない、δ-1)
+	state->IsPerfect = FALSE;
 }
 
-//計測終了時のスコア計算 (Game1Scene/Game2Scene 共通)
-//目標フレーム数 (CalFrame) と実測累積フレーム (FrameTmp) を比較してスコアを決定
+//計測終了時のスコア計算 (Game1Scene/Game2Scene 共通、δ-1 で正規化スコア式に再設計)
+//誤差率 |FrameTmp - CalFrame| / CalFrame を 0〜1.0 に正規化し、(1 - 誤差率) × 100 で 0〜100 を得る。
+//満点は目標時間 (RandomTgt) に依存せず常に 100 で、ネット対戦の公平性とリアルタイム表示の安定性を両立。
+//ピッタリ達成は IsPerfect フラグに格納し、スコア式に不連続段差は持たせない (描画側で演出に分離)。
 void timerCalcScore(TIMER_STATE* state) {
-	//スコアリング処理：目標秒フレームとスコア秒フレームを比較
-	if (state->CalFrame > state->FrameTmp)//目標より早いパターン
-	{
-		//誤差が増すほどスコアから多く引かれる
-		state->ScMulti = state->FrameTmp - state->CalFrame;
-		state->Score = state->CalFrame - (-state->ScMulti);
-	}
-	else if (state->CalFrame < state->FrameTmp)//目標より遅いパターン
-	{
-		//誤差が増すほどスコアから多く引かれる
-		state->ScMulti = state->CalFrame - state->FrameTmp;
-		state->Score = state->CalFrame - (-state->ScMulti);
-	}
-	else if (state->CalFrame == state->FrameTmp)//目標ピッタリ！？
-	{
-		//フレーム単位で合わせるとは油断ならぬ。ボーナス！
-		state->Score = state->CalFrame * PERFECT_BONUS_RATIO;
-	}
+	//誤差フレーム数 (絶対値): FrameTmp は CalMulti が float のため非整数になりうる
+	float diffFrame = fabsf(state->FrameTmp - state->CalFrame);
+
+	//相対誤差率: 0.0 でピッタリ、1.0 で目標と同じだけずれた状態。
+	//CalFrame >= FPS (RandomTgt >= 1 保証) のためゼロ除算なし。
+	//将来 RANDOM_TARGET_OFFSET を 0 にする場合はゼロ除算ガードが必要。
+	float errorRate = diffFrame / state->CalFrame;
+
+	//達成率を 0〜1.0 に正規化 (床あり、誤差率 100% 超は全て 0 に張り付く)
+	float rate = 1.0f - errorRate;
+	if (rate < 0.0f) rate = 0.0f;
+
+	//0〜100 スケールに変換 (満点は目標時間によらず 100 固定)
+	state->Score = rate * SCORE_MAX_RATE;
+
+	//ピッタリ達成フラグ (Score が四捨五入で "100.0" 表示になる条件、画面表示と完全整合)。
+	//スコア式に不連続段差は持たせず、描画側で "PERFECT!" 等の演出に使う。
+	state->IsPerfect = (state->Score >= PERFECT_SCORE_THRESHOLD) ? TRUE : FALSE;
 }
 
 //３ゲーム開始前の初期化を行う

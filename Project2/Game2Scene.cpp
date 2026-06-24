@@ -434,24 +434,23 @@ void renderGame2Scene(void)
 	//ネット対戦を終えた場合：勝敗を判断し、表示する
 	if (netStatus == NET_STATUS_RECEIVED)
 	{
-		//受信したスコアを浮動小数点数に戻す
+		//受信したスコアを浮動小数点数に戻す (双方 0〜100 の正規化達成率、δ-1 以降)
 		float scJudge = strtof(rcScore, NULL);
 
-		scJudge = floorf(scJudge);
-		float Score2J = floorf(state.Score);
-
+		//floorf 整数化は δ-1 で除去 (0〜100 スケールに縮小したため、95.7 vs 95.3 が同点扱いになり粒度が粗すぎる)。
+		//float 直接比較に変更。引き分けは事実上ピッタリ同点のみ。
 		//自分のスコアより少ない場合
-		if (scJudge < Score2J)
+		if (scJudge < state.Score)
 		{
 			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "あなたの勝利です！", ColorSkyLike);
 		}
 		//同じ場合
-		else if (scJudge == Score2J)
+		else if (scJudge == state.Score)
 		{
 			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "なんと…引き分け！", ColorYellow);
 		}
 		//自分のスコアより多い場合
-		else if (scJudge > Score2J)
+		else if (scJudge > state.Score)
 		{
 			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "あなたの敗北です…", ColorBlue);
 		}
@@ -479,7 +478,14 @@ void renderGame2Scene(void)
 
 	//フレーム値は÷FPS して表示する (FrameTmp は CalMulti 加算済みの累積フレーム)
 	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_CURRENT_TIME, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / FPS);
+	//スコアは 0〜100 の正規化達成率 (δ-1 で再設計、ネット交換 "%f" 1 個の契約は維持し意味のみ更新)
 	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SCORE, ColorSkyLike, "スコア：%3.1f点", state.Score);
+
+	//ピッタリ達成時のみ "PERFECT!" を演出表示 (δ-1、DONE 後のみ、SIDE_SELECT/READY 中は出さない)
+	if (state.IsPerfect == TRUE && status2 == GAME2_STATE_DONE)
+	{
+		DrawString(LAYOUT_X_DEFAULT + LAYOUT_X_PERFECT_OFFSET, LAYOUT_Y_SCORE, "PERFECT!", ColorRed);
+	}
 }
 
 //	シーン終了時の後処理

@@ -34,20 +34,22 @@ typedef enum _TIMER_STATUS {
 //タイマー計測用の状態変数を集約した構造体 (Game1Scene/Game2Sceneで共有)
 //静的初期化でゼロクリアされ、timerReset() で目標時間と倍速値が乱数セットされる
 typedef struct _TIMER_STATE {
-	float RandomTgt;	// 目標時間 (秒、乱数値 1〜20)
+	float RandomTgt;	// 目標時間 (秒、乱数値 1〜19)
 	float CalFrame;		// 目標フレーム数 (= RandomTgt * 60、60FPS換算)
-	float RandomMtp;	// 倍速値の元乱数 (10〜49)
-	float CalMulti;		// 倍速倍率 (= RandomMtp / 10、1.0〜4.9倍速)
+	float RandomMtp;	// 倍速値の元乱数 (10〜48)
+	float CalMulti;		// 倍速倍率 (= RandomMtp / 10、1.0〜4.8倍速)
 	float FrameTmp;		// 計測中の累積フレーム数 (CalMulti 加算)
-	float ScMulti;		// スコア計算用の差分 (FrameTmp - CalFrame)
-	float Score;		// 最終スコア
+	float Score;		// 正規化達成率 (0〜100、目標時間によらず満点 100 固定、δ-1 で再定義)
+	BOOL  IsPerfect;	// ピッタリ達成フラグ (δ-1 で追加、描画演出専用、勝敗判定には不参加)
 } TIMER_STATE;
 
 //タイマー状態を乱数初期化 (目標時間と倍速値を再抽選、Game1Scene/Game2Scene 共通)
 void timerReset(TIMER_STATE* state);
 
-//計測終了時のスコア計算 (目標フレーム数と実測値の差分からスコアを算出、Game1Scene/Game2Scene 共通)
-//目標より早い/遅いパターンは誤差分減算、ピッタリ時は 1.25 倍ボーナス
+//計測終了時のスコア計算 (δ-1 で正規化スコア式に変更、Game1Scene/Game2Scene 共通)
+//誤差率 |FrameTmp - CalFrame| / CalFrame を 0〜1.0 に正規化し、(1-誤差率) × 100 で 0〜100 を得る。
+//目標時間 (RandomTgt) によらず満点が 100 で固定されるため、ネット対戦・練習モードで同一スケールが成立。
+//ピッタリ判定 (Score >= PERFECT_SCORE_THRESHOLD = 99.95、画面表示 "100.0" 完全整合) は IsPerfect フラグに格納し、描画側で演出に使う。
 void timerCalcScore(TIMER_STATE* state);
 
 //シーンを変更する関数

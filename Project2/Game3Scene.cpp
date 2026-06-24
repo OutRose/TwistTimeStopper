@@ -126,10 +126,19 @@ void renderGame3Scene(void)
 	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_CURRENT_TIME, ColorGreen, "現在の時間：%3.2f秒", state.FrameTmp / FPS);
 
 	//リアルタイムスコア (Game1 では計測終了後のみ表示だが、練習モードでは MEASURING 中も毎フレーム表示)
-	//コピー方式: timerCalcScore は state.ScMulti/Score を書き換えるため、tmp に複製してから呼び副作用を遮断
+	//コピー方式: timerCalcScore は state.Score/IsPerfect を書き換えるため、tmp に複製してから呼び副作用を遮断
+	//(δ-1 で ScMulti は削除済、書き換え対象は Score と IsPerfect の 2 メンバ)
 	TIMER_STATE tmp = state;
 	timerCalcScore(&tmp);
+	//スコアは 0〜100 の正規化達成率 (δ-1 で再設計、目標が変わっても値域固定で UX 安定)
 	DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SCORE, ColorSkyLike, "スコア：%3.1f", tmp.Score);
+
+	//練習モード: PERFECT! をリアルタイムでも表示 (ユーザー選択、δ-1)。
+	//目標近傍でフラグが瞬間的に ON/OFF 切替わる可能性はあるが、学習用の即時フィードバック優先。
+	if (tmp.IsPerfect == TRUE)
+	{
+		DrawString(LAYOUT_X_DEFAULT + LAYOUT_X_PERFECT_OFFSET, LAYOUT_Y_SCORE, "PERFECT!", ColorRed);
+	}
 }
 
 //	シーン終了時の後処理
