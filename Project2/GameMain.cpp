@@ -45,7 +45,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	//DXライブラリ初期化処理
 	//check:-1(例外処理)が来た場合は、セットアップに失敗する
 	//パソコン本体の機器の確認をしてもらう(音声デバイスがない等。)
-	if (DxLib_Init() == -1)return -1;
+	if (DxLib_Init() == -1) {
+		//デバッグ視認性向上 (Release は空展開、戻り値挙動は不変)
+		MyOutputDebugString(_T("DxLib_Init failed (-1 returned). Check audio device etc.\n"));
+		return -1;
+	}
 
 	//描画先を一番後ろにする
 	SetDrawScreen(DX_SCREEN_BACK);

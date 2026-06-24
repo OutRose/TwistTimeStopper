@@ -312,12 +312,10 @@ default: break;  // ← 追加
 1. **β-D-1**: シーンディスパッチャ共通化 — [GameSceneMain.cpp](Project2/GameSceneMain.cpp) の 5 つの `switch (sceneNo)` を `SCENE_HANDLERS` 関数ポインタ束 + `sceneTable` 配列 + 1 行ディスパッチへ。`prevScene` 削除、`MessageBox` 5 箇所撤去 (プラットフォーム依存解消)、シーン追加コストが 5 箇所 → 2 箇所 (enum + テーブル) に減
 2. **β-D-2a**: 色変数共通化 — Game1/2 のサフィックス`2` 並走を解消。7 色 (`ColorWhite`〜`ColorSkyLike`) を [GameMain.cpp](Project2/GameMain.cpp) に集約定義 + [GameMain.h](Project2/GameMain.h) で `extern` 公開。[MenuScene.cpp](Project2/MenuScene.cpp) と [Game3Scene.cpp](Project2/Game3Scene.cpp) の `GetColor` 直呼び 7 箇所も共通変数に置換 (= 観点6 マジックナンバー RGB 直値部分解消)
 3. **β-D-2b+2c (統合)**: TIMER_STATE 構造体導入 + targetTimeSet 共通関数化 — [GameSceneMain.h](Project2/GameSceneMain.h) に `TIMER_STATE` 構造体 (7 メンバ: RandomTgt/CalFrame/RandomMtp/CalMulti/FrameTmp/ScMulti/Score) + `timerReset(TIMER_STATE*)` プロトタイプ追加。[GameSceneMain.cpp](Project2/GameSceneMain.cpp) に `timerReset` 関数定義。Game1Scene.cpp と Game2Scene.cpp の計測変数 7 個 ×2 セットを `TIMER_STATE state = {};` 1 個に集約、約 40 箇所の参照を `state.X` 形式に置換、サフィックス`2`完全消滅。`targetTimeSet`/`targetTimeSet2` 関数定義は削除。これにより乱数初期化ロジックの重複が完全解消
-
-**未着手 (β-D-2 続き)**:
-- **β-D-2d**: スコア計算共通化 (case DONE 内の if-else 3 分岐を `timerCalcScore(TIMER_STATE*)` に集約)
+4. **β-D-2d**: スコア計算共通化 — [GameSceneMain.h](Project2/GameSceneMain.h) に `timerCalcScore(TIMER_STATE*)` プロトタイプ追加、[GameSceneMain.cpp](Project2/GameSceneMain.cpp) に関数定義追加 (旧 if-else 3 分岐: 早い/遅い/ピッタリの 1.25 倍ボーナス)。Game1Scene.cpp の `case TIMER_STATUS_DONE` および Game2Scene.cpp の `case GAME2_STATE_DONE` 内の同一スコア計算ブロック (18 行 ×2) を `timerCalcScore(&state);` 1 行呼び出しに置換。β-D-2 系完了 — 計測ロジックの重複が完全消滅
+5. **β-D-3**: エラーハンドリング強化 (案 B: 中程度、フォールバック動作追加) — [GameMain.h](Project2/GameMain.h) に `MyOutputDebugString` マクロ昇格 (Game2Scene.cpp 専用 → 全シーン共通、`<stdio.h>`/`<Windows.h>`/`<tchar.h>` も同梱)、Game2Scene.cpp の重複定義削除。[GameMain.cpp](Project2/GameMain.cpp) `DxLib_Init` 失敗時にデバッグログ追加。[GameSceneMain.cpp](Project2/GameSceneMain.cpp) `<assert.h>` include 追加、`changeScene` 範囲外時にログ + Debug ビルド assert、`initCurrentScene` を `BOOL` 戻り値化、`FrameMove` に SCENE_MENU フォールバック (init 失敗時) + 諦め (SCENE_NONE) ロジック追加。現状全 init が TRUE 固定のため発火しないが、将来 LoadGraph 等を追加した時の布石
 
 **未着手 (β-D その他)**:
-- エラーハンドリング強化 (`DxLib_Init` 失敗時、`changeScene` 範囲外時等)
 - マジックナンバー定数化 (描画座標、フレーム換算 60、ボーナス係数 1.25f、ポート 3500、バッファ 256 等)
 
 ### フェーズ γ: LAN ネットワーク対戦の完成

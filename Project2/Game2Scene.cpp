@@ -3,28 +3,11 @@
 #include "Game2Scene.h"
 #include <math.h>
 #include <string.h>
-
-#include <stdio.h>
-#include <Windows.h>
-#include <tchar.h>
 #include <winsock.h>
 #pragma comment(lib, "wsock32.lib")
 #define _CRT_SECURE_NO_WARNINGS
 
-//デバッグ文字列出力マクロ
-//使用方法：
-//MyOutputDebugString(_T"出力したい文字 %s", 指定する対応変数);
-//※_Tは変数を混ぜたい場合にのみ使用する
-#ifdef _DEBUG
-#   define MyOutputDebugString( str, ... ) \
-      { \
-        TCHAR c[256]; \
-        _stprintf( c, str, __VA_ARGS__ ); \
-        OutputDebugString( c ); \
-      }
-#else
-#    define MyOutputDebugString( str, ... ) // 空実装
-#endif
+//MyOutputDebugString マクロは GameMain.h に昇格済み (Game2Scene 専用ではなくなったため)
 
 #define MENU_MAX_G 2
 char* menuList2[3] = { "挑む側","挑まれる側","" };
@@ -289,24 +272,8 @@ void moveGame2Scene()
 		break;
 
 	case GAME2_STATE_DONE://計測が終了したあとの処理を行う
-		//スコアリング処理：目標秒フレームとスコア秒フレームを比較
-		if (state.CalFrame > state.FrameTmp)//目標より早いパターン
-		{
-			//誤差が増すほどスコアから多く引かれる
-			state.ScMulti = state.FrameTmp - state.CalFrame;
-			state.Score = state.CalFrame - (-state.ScMulti);
-		}
-		else if (state.CalFrame < state.FrameTmp)//目標より遅いパターン
-		{
-			//誤差が増すほどスコアから多く引かれる
-			state.ScMulti = state.CalFrame - state.FrameTmp;
-			state.Score = state.CalFrame - (-state.ScMulti);
-		}
-		else if (state.CalFrame == state.FrameTmp)//目標ピッタリ！？
-		{
-			//フレーム単位で合わせるとは油断ならぬ。ボーナス！
-			state.Score = state.CalFrame * 1.25f;
-		}
+		//スコア計算 (共通関数、目標との差分から算出)
+		timerCalcScore(&state);
 
 		//Rキーで状態リセット
 		if (CheckHitKey(KEY_INPUT_R) == 1)

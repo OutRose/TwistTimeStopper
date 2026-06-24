@@ -45,6 +45,10 @@ typedef struct _TIMER_STATE {
 //タイマー状態を乱数初期化 (目標時間と倍速値を再抽選、Game1Scene/Game2Scene 共通)
 void timerReset(TIMER_STATE* state);
 
+//計測終了時のスコア計算 (目標フレーム数と実測値の差分からスコアを算出、Game1Scene/Game2Scene 共通)
+//目標より早い/遅いパターンは誤差分減算、ピッタリ時は 1.25 倍ボーナス
+void timerCalcScore(TIMER_STATE* state);
+
 //シーンを変更する関数
 void changeScene(SCENE_NO no);
 

@@ -1,4 +1,5 @@
 ﻿#include "GameSceneMain.h"
+#include <assert.h>		//changeScene 範囲外チェックのアサート用 (Debug ビルドでのみ発火)
 
 //全てのシーンのヘッダファイルをインクルードする
 #include "Game1Scene.h"
@@ -7,8 +8,8 @@
 #include "MenuScene.h"
 
 //このファイル内だけで使用する関数のプロトタイプ宣言
-//現在のシーンの初期化処理
-void initCurrentScene(void);
+//現在のシーンの初期化処理 (BOOL: 成功 TRUE / 失敗 FALSE、FrameMove 内のフォールバック判定で参照)
+BOOL initCurrentScene(void);
 //現在のシーンのフレーム処理
 void moveCurrentScene();
 //現在のシーンのレンダリング処理
@@ -54,6 +55,29 @@ void timerReset(TIMER_STATE* state) {
 	state->CalMulti = state->RandomMtp / 10;
 }
 
+//計測終了時のスコア計算 (Game1Scene/Game2Scene 共通)
+//目標フレーム数 (CalFrame) と実測累積フレーム (FrameTmp) を比較してスコアを決定
+void timerCalcScore(TIMER_STATE* state) {
+	//スコアリング処理：目標秒フレームとスコア秒フレームを比較
+	if (state->CalFrame > state->FrameTmp)//目標より早いパターン
+	{
+		//誤差が増すほどスコアから多く引かれる
+		state->ScMulti = state->FrameTmp - state->CalFrame;
+		state->Score = state->CalFrame - (-state->ScMulti);
+	}
+	else if (state->CalFrame < state->FrameTmp)//目標より遅いパターン
+	{
+		//誤差が増すほどスコアから多く引かれる
+		state->ScMulti = state->CalFrame - state->FrameTmp;
+		state->Score = state->CalFrame - (-state->ScMulti);
+	}
+	else if (state->CalFrame == state->FrameTmp)//目標ピッタリ！？
+	{
+		//フレーム単位で合わせるとは油断ならぬ。ボーナス！
+		state->Score = state->CalFrame * 1.25f;
+	}
+}
+
 //３ゲーム開始前の初期化を行う
 BOOL InitGame(void) {
 	// 全てのシーンで共有するモノを初期化する
@@ -71,8 +95,24 @@ void FrameMove() {
 		releaseCurrentScene();
 		//現在のシーンを新規シーンに変更する
 		sceneNo = nextScene;
-		//新しいシーンの初期化処理
-		initCurrentScene();
+		//新しいシーンの初期化処理 (失敗時は SCENE_MENU にフォールバック、それも失敗なら諦める)
+		if (!initCurrentScene()) {
+			MyOutputDebugString(_T("initCurrentScene failed for scene %d, falling back to SCENE_MENU\n"), (int)sceneNo);
+			if (sceneNo != SCENE_MENU) {
+				//通常シーン失敗 → SCENE_MENU を試す
+				sceneNo = SCENE_MENU;
+				if (!initCurrentScene()) {
+					//SCENE_MENU も失敗 → 諦める (sceneNo = SCENE_NONE で以後 move/render 無効化)
+					MyOutputDebugString(_T("SCENE_MENU init also failed, giving up\n"));
+					sceneNo = SCENE_NONE;
+				}
+			} else {
+				//SCENE_MENU 自体が失敗 → 無限再試行を避け諦める
+				sceneNo = SCENE_NONE;
+			}
+			//無限ループ防止: nextScene を sceneNo に合わせる (sceneNo != nextScene の再侵入を防ぐ)
+			nextScene = sceneNo;
+		}
 	}
 
 	//現在のシーンのフレーム処理
@@ -101,16 +141,20 @@ void  CollideCallback(int nSrc, int nTarget, int nCollideID) {
 void changeScene(SCENE_NO no) {
 	// 現在のシーンと同じときは何もしない
 	if (sceneNo == no)return;
-	// 正しくないシーン番号の時は無視する
-	if (no >= SCENE_MAX) return;
-	if (no <= SCENE_NONE) return;
+	// 正しくないシーン番号は無視 (Debug はログ + assert で停止、Release は無視継続)
+	if (no >= SCENE_MAX || no <= SCENE_NONE) {
+		MyOutputDebugString(_T("changeScene: invalid scene number %d (ignored)\n"), (int)no);
+		assert(0 && "changeScene called with invalid scene number");
+		return;
+	}
 	// シーンを変更する
 	nextScene = no;
 }
 
-//３(3) 現在のシーンの初期化処理
-void initCurrentScene(void) {
-	if (isValidSceneIndex(sceneNo)) sceneTable[sceneNo].init();
+//３(3) 現在のシーンの初期化処理 (各シーンの init を呼び、BOOL 戻り値をそのまま返す)
+BOOL initCurrentScene(void) {
+	if (isValidSceneIndex(sceneNo)) return sceneTable[sceneNo].init();
+	return FALSE;	//無効インデックス時は失敗扱い (FrameMove 側でフォールバックされる)
 }
 //３(4) 現在のシーンのフレーム処理
 void moveCurrentScene() {
