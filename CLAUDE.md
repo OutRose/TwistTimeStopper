@@ -195,11 +195,12 @@ Input = i;                                        // 現状保持
 **γ-2 仕様化された制約 (将来課題)**:
 - ⚠️ 同期 `accept`/`recv` によるフリーズ: Defender 側で N キー押下後、Challenger 起動まで**ゲームループ凍結** (ESC 反応不能、Task Manager 強制終了で脱出)。非ブロッキング化 (`ioctlsocket FIONBIO` + `select` または別スレッド) は **フェーズ δ** 候補
 
-**γ-3 持ち越し (堅牢化)**:
-- 全 WinSock 関数の戻り値検査 (`socket`/`bind`/`listen`/`connect`/`accept`/`send`/`recv` のエラー時 cleanup)
-- `netStatus` enum 化 (β-C-4 連動): `NET_STATUS` (INIT/WAITING/RECEIVED)
-- ネット系マジックナンバー定数化 (β-D-4 持ち越し): `NET_PORT 3500`/`NET_BUF_SIZE 256`/`SERVER_NAME_SIZE 128`/`WINSOCK_VERSION MAKEWORD(1,1)`
-- `for` ループの `rcScore` コピーを `memcpy` に置換
+**γ-3 完成 (2026-06-24)**:
+- ✅ 全 WinSock 関数の戻り値検査 (`socket`/`bind`/`listen`/`connect`/`accept`/`send`/`recv` + `gethostname`/`gethostbyname`) のインライン `if` 検査追加、エラー時 `MyOutputDebugString(_T("...failed (err=%d)"), WSAGetLastError())` ログ + LIFO 順 `closesocket` + `return -1` で統一
+- ✅ `netStatus` enum 化 (β-C-4 連動): `NET_STATUS` (INIT/WAITING/RECEIVED)、WAITING (=1) は将来非同期化布石として残置
+- ✅ ネット系マジックナンバー定数化 (β-D-4 持ち越し): `NET_PORT 3500`/`NET_BUF_SIZE 256`/`SERVER_NAME_SIZE 128`/`WINSOCK_VERSION_REQ MAKEWORD(1,1)` を Game2Scene.cpp ファイルスコープに集約 (Game2 専用、NET_SIDE/GAME2_STATE と同方針)
+- ✅ `for` ループの `rcScore` コピーを `memcpy(rcScore, szBuf, NET_BUF_SIZE)` に置換 (2 箇所)
+- ✅ `netBattle` 戻り値統一: 成功 0 / 失敗 -1
 
 進め方は[リファクタリング戦略](#リファクタリング戦略) の **フェーズ γ-2 / γ-3** 参照。
 
@@ -357,18 +358,27 @@ Workflow で 3 案 (段階分割 / 一括完成 / 2 分割) を並列探索 → 
 - **SIDE_SELECT case の X キー脱出処理追加** + 条件付き break を無条件 break に修正
 - **テスト方法**: ビルド済み `Project2.exe` を Explorer から 2 回起動 (Defender 先 → Challenger 後)、Visual Studio デバッグでは 1 プロセスのみのため不可
 
-### フェーズ γ-3: 堅牢化リファクタ (持ち越し)
+### フェーズ γ-3: 堅牢化リファクタ (完了, 2026-06-24)
 
-γ-2 範囲外として持ち越し:
-- 全 WinSock 関数の戻り値検査 (エラー時 cleanup)
-- `netStatus` enum 化 (β-C-4 連動): `NET_STATUS` (INIT/WAITING/RECEIVED)
-- ネット系マジックナンバー定数化 (β-D-4 持ち越し): `NET_PORT 3500`/`NET_BUF_SIZE 256`/`SERVER_NAME_SIZE 128`/`WINSOCK_VERSION MAKEWORD(1,1)`
-- `for` ループの `rcScore` コピーを `memcpy` に置換
-- `gethostname`/`inet_ntoa` デバッグ出力の Defender 専用への移動検討
+Workflow で 3 カテゴリ (戻り値検査 / enum+定数 / memcpy+細部) を並列探索 → 全 5 判断ポイント推奨採用で実装。動作不変リファクタ、編集順序 B → C → A (依存関係順)。
 
-着手は γ-2 のビルド・動作確認完了後。コミットは γ-2 と分離 (動く前/後と磨く前/後で git log を明瞭化)。
+採用判断:
+1. **マクロ化しない** (インライン `if`、+60〜70 行) — 複数戻り値型・複数 closesocket・スコープ依存ローカル変数でマクロでは綺麗に書けず、コメント方針整合
+2. **`netBattle` 戻り値統一**: 成功 0 / 失敗 -1 (型ひずみなし、将来 caller でエラー表示の土台)
+3. **`NET_STATUS_WAITING` (=1) 残す** — TIMER_STATUS と同じ 3 値構造、将来非同期化布石
+4. **定数配置: Game2Scene.cpp ファイルスコープ #define** — NET_SIDE/GAME2_STATE と同じ Game2 専用方針
+5. **範囲外細部 (cnt/デバッグ出力位置/旧コメント等) は全てフェーズ δ 送り** — スコープ膨張防止
 
-### フェーズ δ (予定): スコアシステム見直し
+実装内容:
+- [Game2Scene.cpp](Project2/Game2Scene.cpp) 約 421 → 約 495 行
+- (B) 4 定数 + 1 enum 追加、約 12 箇所置換
+- (C) Challenger/Defender 各 1 箇所の `for (i=0; i<256; i++) { rcScore[i]=szBuf[i]; }` → `memcpy(rcScore, szBuf, NET_BUF_SIZE);`
+- (A) 全 WinSock 関数 (gethostname/gethostbyname/socket×2/bind/listen/connect/accept/send×2/recv×2) に統一書式の戻り値検査追加、エラー時 `MyOutputDebugString` + `WSAGetLastError` ログ + LIFO `closesocket` + `return -1`
+- テスト: Debug|Win32 ビルド + 単体動作のみ (2 プロセステスト不要、γ-2 で本番確認済、γ-3 は値ラベル化と正常系不変のフェイルセーフ追加のみ)
+
+### フェーズ δ (予定): スコアシステム見直し + Game2Scene 全体清掃 + ネット運用強化
+
+#### δ-1: スコアシステム見直し (本命、ユーザー要望)
 
 ユーザー要望 (2026-06-24)。現状の `timerCalcScore` ([GameSceneMain.cpp](Project2/GameSceneMain.cpp)) は **目標秒数 `CalFrame = RandomTgt * FPS` に強く依存**するため、目標時間が長いほどスコアの絶対値も比例して大きくなる (例: 19 秒目標なら満点 ≈ 1140、1 秒目標なら満点 ≈ 60、ピッタリ時はそれぞれ `* PERFECT_BONUS_RATIO`)。これにより:
 
@@ -380,6 +390,24 @@ Workflow で 3 案 (段階分割 / 一括完成 / 2 分割) を並列探索 → 
 - 正規化スコア (目標時間で割って 0〜1.0 のレートに統一、× 100 等で表示)
 - 誤差ベーススコア (`|FrameTmp - CalFrame| / CalFrame * 100%` のような相対誤差)
 - 階級制 (誤差 ±5% で S、±10% で A 等のグレード表示)
+
+#### δ-2: Game2Scene 全体清掃 (γ-3 範囲外として持ち越し)
+
+γ-3 でスコープ膨張防止のため範囲外とした細部:
+- `cnt` 変数整理 (Defender 内 `cnt = 1` 宣言 / `cnt++` ログ、使用箇所限定的)
+- デバッグ出力位置見直し (`gethostname`/`inet_ntoa` を Defender 専用に移動するか共通維持か)
+- γ-2 追加ログの書式統一 ("送信:" "受信:" 等)
+- 不要コメント削除 (例: `//終了のキーワードを判別する` 等の旧実装由来 — ただし CLAUDE.md コメント方針で役割メモは保護)
+
+#### δ-3: ネット運用強化 (将来課題)
+
+- **同期通信の非同期化** (Defender accept 中フリーズ問題、`ioctlsocket FIONBIO` + `select` または別スレッド)
+- **`'localhost'` リテラルの定数化** (現状 1 箇所固定、過剰設計だが任意 NIC への拡張時に必要)
+- **Winsock 2.2 アップグレード** (`MAKEWORD(2, 2)`、現状 1.1 で動作中)
+- **ネット系定数の GameMain.h 昇格** (Game4 等でネット対戦追加する時点で再判断)
+- **`netStatus` への caller 側エラー処理追加** (`moveGame2Scene` 内で `netBattle` 戻り値 -1 をユーザー通知)
+
+δ-1/δ-2/δ-3 はそれぞれ独立着手可能。優先度は δ-1 > δ-2 > δ-3 (ユーザー要望 > リファクタ仕上げ > 将来拡張)。
 
 **着手タイミング**: フェーズ γ (LAN ネット対戦完成) 完了後を想定。スコア仕様の変更はネット対戦のスコア交換プロトコルにも影響するため、γ 完成後に一括見直しが筋。
 
