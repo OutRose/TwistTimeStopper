@@ -53,7 +53,7 @@ void moveMenuScene() {
 //レンダリング処理
 void renderMenuScene(void) {
 	DrawString(MENU_X_TITLE, MENU_Y_TITLE, "ねじれストップウォッチ（仮）", ColorWhite);
-	DrawString(MENU_X_VERSION, MENU_Y_VERSION, "Version 0.9.3", ColorWhite);
+	DrawString(MENU_X_VERSION, MENU_Y_VERSION, "Version 0.10.0", ColorWhite);
 	DrawString(MENU_X_HINT, MENU_Y_HINT, "Zキーで決定、ESCキーで終了", ColorWhite);
 
 	//６(2) メニュー項目の表示

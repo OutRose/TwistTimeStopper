@@ -448,17 +448,38 @@ Workflow で 5 案 (A: 正規化 0〜100% / B: グレード制 / C: ハイブリ
 
 テスト: Debug|Win32 ビルド成功 (警告ゼロ)。動作確認は γ-2 の 2 プロセステスト手順を引き継ぎ可能 (プロトコルは旧 `%f` → 新 `SCORE:%.2f` に変わったが、双方とも新版なら整合)。
 
-#### δ-3b: ネット運用強化 (本体改修、未着手)
+### フェーズ δ-3b: ネット運用強化 (本体改修、完了 2026-06-25)
 
-δ-3a の足場の上に、ゲームループとのインターリーブを根本的に書き換える本体改修を実装する。完了時に **0.10.0 = フェーズ δ 完了**。
+δ-3a の足場の上に、ゲームループとのインターリーブを根本的に書き換える本体改修を実装。完了で **0.10.0 = フェーズ δ 完了** (α/β/γ/δ 全コンプリート)。
 
-- **同期通信の非同期化** (Server accept 中フリーズ問題、`ioctlsocket FIONBIO` + `select` ベースの polling 構成、SPEC_NETWORK.md §8 参照)
-- **netBattle の分解 → moveGame2Scene への state machine 統合** (フレームをまたいで NET_STATUS が遷移)
-- **NET_STATUS 5 状態の活用開始** (CONNECTED/SENT/RECEIVED/ENDING/END)
-- **END/BYEBYE 終了通知の送受信** (SPEC_NETWORK.md §5)
-- **エラー画面 + メニュー復帰** (Z/X キー押下で `changeScene(SCENE_MENU)`、SPEC_NETWORK.md §7 参照)
-- **タイムアウト 30 秒** (一定時間進展なしで `netStatus = END` 強制遷移)
-- **ネット系定数の GameMain.h 昇格** (Game4 等でネット対戦追加する時点で再判断、δ-3b では Game2Scene 内のまま)
+実装内容 (全て [Game2Scene.cpp](Project2/Game2Scene.cpp)):
+- **非同期 state machine の中核**: ソケット (`netSocket` / `netListenSocket`) を file-scope に昇格してフレームをまたいで保持。`ioctlsocket FIONBIO` で全 socket を non-blocking 化、`recv` / `accept` の `WSAEWOULDBLOCK` を「次フレームで再試行」として正常扱い。Server の `accept` 待機中フリーズが解消
+- **netBattle 全面解体**: 約 150 行の同期 `netBattle(float score)` 関数を撤去し、以下のヘルパ群に分解
+  - `netStart()`: N キー押下で呼ばれ socket + bind/listen (Server) or connect (Client) を初期化
+  - `netStep()`: 毎フレーム呼ばれて NET_STATUS に応じた 1 ステップ進行
+  - `netParseMessage()`: 受信メッセージを `SCORE:` / `END` / `BYEBYE` / UNKNOWN に分類
+  - `netTrySend()` / `netTryRecv()`: WSAEWOULDBLOCK 込みの 1 段非同期 I/O
+  - `netSetNonBlocking()` / `netCleanupSockets()` / `netTransitionToError()`: ユーティリティ
+- **NET_STATUS 7 値の活用**: δ-3a で定義した 7 値全てを稼働 (INIT → CONNECTED → SENT/RECEIVED → EXCHANGED → ENDING → END)。SPEC_NETWORK.md §9 の遷移図に準拠
+- **END/BYEBYE 終了通知**: EXCHANGED 後に ENDING フェーズへ進み、両者が END を送受信完了したら END 状態 + `closesocket`。X キー途中離脱や `netTransitionToError` では BYEBYE をベストエフォート送信
+- **GAME2_STATE_ERROR + エラー画面**: 通信失敗時に `netTransitionToError(message)` で `netErrorMessage` バッファに原因を格納、`renderGame2Scene` で「通信エラーが発生しました / 原因: ... / Z または X キーでメニューに戻る」を専用画面表示
+- **タイムアウト 30 秒** (`NET_TIMEOUT_FRAMES = 30 * FPS = 1800`): 進展なしフレーム (`netStallFrames`) が上限到達で `GAME2_STATE_ERROR` 遷移。state 遷移ごとに 0 リセット = 「30 秒間進展なし」を検出
+- **renderGame2Scene 拡張**: DONE 中の操作案内を `netStatus` で出し分け (INIT: 「Rキー... Nキー...」、CONNECTED/SENT/RECEIVED: 「対戦相手と通信中…」、EXCHANGED 以降: 勝敗結果)。相手スコア表示で `SCORE:` プレフィックスを剥がし `%.2f` 数値表示
+- **R キー制限**: ネット battle 中 (`NET_STATUS_INIT`/`END` 以外) は R キーのリセットを無視 (誤操作で battle 中断防止)
+
+採用判断の継承 (δ-3 全体方針、δ-3a 段階で確定):
+- スコープ分割: 2 分割 (δ-3a / δ-3b)
+- タイムアウト: 30 秒 (進展なし)
+- エラー復帰: Z/X キー押下で手動確認
+- メジャーバージョン: 0 据え置き (0.10.0)
+
+既知の制約 (δ-3 範囲外):
+- TCP stream protocol の特性上、Client が SCORE と END を連続送信すると Server の単一 `recv` で結合されうる。現状は localhost + 自然なフレーム間隔で分離される前提。長さプレフィックス等の正式なメッセージ framing は将来課題
+- 接続先は `NET_TARGET_HOST = "localhost"` 固定。任意 IP 指定 UI は本フェーズ外
+- ネット系定数の `GameMain.h` 昇格は見送り (Game4 等でネット対戦追加する時点で再判断)
+- IPv4 のみ (gethostbyname 使用、IPv6 対応は getaddrinfo への置換が必要)
+
+テスト: Debug|Win32 ビルド成功 (警告ゼロ、`Project2.exe` 生成)。動作確認は 2 プロセス起動で正常系 (Server 先 → Client 後) + 異常系 (Client 起動せず Server 30 秒放置でタイムアウト、片方途中切断で BYEBYE 検出) を実機で要確認。
 
 ---
 

@@ -27,6 +27,22 @@
 #define NET_PREFIX_LEN_SCORE 6               //strlen("SCORE:")、strncmp 比較長さ用
 #define NET_MSG_END          "END"           //通常終了通知 (δ-3b で state machine と連動使用)
 #define NET_MSG_BYEBYE       "BYEBYE"        //異常終了通知 (δ-3b で state machine と連動使用)
+#define NET_MSG_END_LEN      3               //strlen("END")
+#define NET_MSG_BYEBYE_LEN   6               //strlen("BYEBYE")
+
+//δ-3b: タイムアウト (30 秒 = 30 × FPS = 1800 フレーム)。
+//進展なし (= state 遷移なし) のフレームをカウントし、上限到達でエラー状態へ。
+//state が進む度に netTimeoutFrames は 0 にリセットされる方針 (絶対時刻ではなく「停滞時間」)。
+#define NET_TIMEOUT_FRAMES (30 * FPS)
+
+//δ-3b: 受信メッセージの種別 (SPEC_NETWORK.md §5.2 パース規約)
+typedef enum _NET_MSG_TYPE {
+	NET_MSG_TYPE_NONE = 0,	//パース不能 / 受信ゼロバイト
+	NET_MSG_TYPE_SCORE,		//"SCORE:" プレフィックス付き
+	NET_MSG_TYPE_END,		//通常終了通知
+	NET_MSG_TYPE_BYEBYE,	//異常終了通知 (相手側エラー伝播)
+	NET_MSG_TYPE_UNKNOWN	//プロトコルエラー
+} NET_MSG_TYPE;
 
 #define MENU_MAX_G 2
 //SIDE_SELECT メニュー項目 (δ-2: 未使用 3 要素目 "" を削除し MENU_MAX_G と要素数を一致)
@@ -44,6 +60,24 @@ static TIMER_STATE state = {};
 //受信したスコアを格納する変数 (δ-2: 外部参照ゼロ確認済、static で Game2Scene 内に閉じる)
 static char rcScore[NET_BUF_SIZE];
 
+//δ-3b: ネット対戦用ソケット (フレームをまたいで保持、非同期 state machine の中核)
+//通信用ソケット (Client: connect 後、Server: accept 結果)。INVALID_SOCKET = 未確立
+static SOCKET netSocket = INVALID_SOCKET;
+//listen 用ソケット (Server 専用)。accept 完了後も close は GAME2_STATE_ERROR / END 経由
+static SOCKET netListenSocket = INVALID_SOCKET;
+
+//δ-3b: state machine 用フラグ (NET_STATUS のサブ状態管理)
+static BOOL netScoreSent     = FALSE;	//自スコア送信完了 (SCORE: メッセージ)
+static BOOL netScoreReceived = FALSE;	//相手スコア受信完了 (SCORE: メッセージ)
+static BOOL netEndSent       = FALSE;	//終了通知 (END) 送信完了
+static BOOL netEndReceived   = FALSE;	//終了通知 (END/BYEBYE) 受信完了
+
+//δ-3b: タイムアウト用フレームカウンタ (進展なしフレーム数、進展時 0 リセット)
+static int netStallFrames = 0;
+
+//δ-3b: エラーメッセージ表示用バッファ (GAME2_STATE_ERROR で render に表示)
+static char netErrorMessage[NET_BUF_SIZE] = "";
+
 //状態遷移マネージメント変数 (詳細は下記 GAME2_STATE enum 参照)
 //0-3 は Game1Scene.cpp の TIMER_STATUS とミラー、4 は Game2 専用 SIDE_SELECT
 //TIMER_STATUS を共有 enum として汚さないため別型として定義している
@@ -52,7 +86,8 @@ typedef enum _GAME2_STATE {
 	GAME2_STATE_READY,				// セット完了、スタート待ち (TIMER_STATUS_READY 相当)
 	GAME2_STATE_MEASURING,			// 計測中 (TIMER_STATUS_MEASURING 相当)
 	GAME2_STATE_DONE,				// 計測完了、スコア加算OK (TIMER_STATUS_DONE 相当)
-	GAME2_STATE_SIDE_SELECT			// Game2 専用: ネット対戦の送受信側を選ぶメニュー
+	GAME2_STATE_SIDE_SELECT,		// Game2 専用: ネット対戦の送受信側を選ぶメニュー
+	GAME2_STATE_ERROR				// δ-3b: ネット対戦エラー画面、Z/X 押下でメニュー復帰
 } GAME2_STATE;
 
 GAME2_STATE status2 = GAME2_STATE_SIDE_SELECT;
@@ -90,6 +125,17 @@ BOOL initGame2Scene(void)
 	sideSelect = SIDE_SELECT_NONE;
 	netStatus = NET_STATUS_INIT;
 
+	//δ-3b: state machine 用フラグもクリア (前ラウンドの残骸を持ち越さない)
+	netSocket          = INVALID_SOCKET;
+	netListenSocket    = INVALID_SOCKET;
+	netScoreSent       = FALSE;
+	netScoreReceived   = FALSE;
+	netEndSent         = FALSE;
+	netEndReceived     = FALSE;
+	netStallFrames     = 0;
+	netErrorMessage[0] = '\0';
+	rcScore[0]         = '\0';
+
 	//WinSock 初期化 (γ-2-c: シーン寿命に合わせて init/release ペアリング、netBattle 内呼び出しを移管)
 	//失敗時は BOOL FALSE を返し、initCurrentScene のフォールバック (β-D-3) で SCENE_MENU に戻る
 	WORD wVerReq = WINSOCK_VERSION_REQ;
@@ -110,188 +156,453 @@ BOOL initGame2Scene(void)
 	return TRUE;
 }
 
-//ネットワーク対戦部分：TCPを応用した通信を行う (γ-2 で全面整理、γ-3 で全 WinSock 戻り値検査追加)
-//WSAStartup/WSACleanup は initGame2Scene/releaseGame2Scene に移管済み (γ-2-c)
-//戻り値: 成功 0 / 失敗 -1 (γ-3 で統一、現状 caller は無視しているが将来エラー表示の土台)
-int netBattle(float score)
+//δ-3b: ソケットを non-blocking モードに切り替える共通ヘルパ (ioctlsocket FIONBIO)
+//返り値: 成功 0、失敗 -1 (失敗時は caller がエラー遷移すること)
+static int netSetNonBlocking(SOCKET s)
 {
-	int     nRet;
-	char    szBuf[NET_BUF_SIZE];
-	SOCKET  remS = INVALID_SOCKET;	//受信用ソケット (Defender 内 accept 結果格納、関数頭で初期化)
-
-	//これより、送受信どちらかを選んだかにより処理が変化する
-	switch (sideSelect)
+	u_long mode = 1;	//1 = non-blocking、0 = blocking (デフォルト)
+	if (ioctlsocket(s, FIONBIO, &mode) == SOCKET_ERROR)
 	{
-		//こちらが送信側 (Client = 旧 Challenger): socket → connect → send → recv → netStatus=EXCHANGED → closesocket
-		case SIDE_SELECT_CLIENT: {
-			LPHOSTENT	lpHostEntry;
-			SOCKET		s;
-			SOCKADDR_IN saCl;
-			short		nPort = NET_PORT;	//通信に使用するポート番号
-			//接続先 (δ-3a: ハードコード "localhost" を NET_TARGET_HOST 定数経由に変更)
-			char		szServer[SERVER_NAME_SIZE];
-			strncpy(szServer, NET_TARGET_HOST, SERVER_NAME_SIZE - 1);
-			szServer[SERVER_NAME_SIZE - 1] = '\0';
+		MyOutputDebugString(_T("ioctlsocket FIONBIO failed (err=%d)\n"), WSAGetLastError());
+		return -1;
+	}
+	return 0;
+}
 
-			MyOutputDebugString(_T("\n %sの確認中です…"), szServer);
-			lpHostEntry = gethostbyname(szServer);
-			if (lpHostEntry == NULL)
-			{
-				MyOutputDebugString(_T("gethostbyname failed for %s (err=%d)\n"), szServer, WSAGetLastError());
-				return -1;
-			}
-			MyOutputDebugString("OK!\n");
+//δ-3b: ネット対戦用ソケットを LIFO 順で確実に閉じる (EXCHANGED → END / エラー時の共通後始末)
+//再呼び出し可 (INVALID_SOCKET チェック済)、idempotent
+static void netCleanupSockets(void)
+{
+	if (netSocket != INVALID_SOCKET)
+	{
+		closesocket(netSocket);
+		netSocket = INVALID_SOCKET;
+	}
+	if (netListenSocket != INVALID_SOCKET)
+	{
+		closesocket(netListenSocket);
+		netListenSocket = INVALID_SOCKET;
+	}
+}
 
-			//ソケット作成
-			s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-			if (s == INVALID_SOCKET)
-			{
-				MyOutputDebugString(_T("socket failed for Client (err=%d)\n"), WSAGetLastError());
-				return -1;
-			}
+//δ-3b: エラー画面 (GAME2_STATE_ERROR) へ遷移する共通ヘルパ。
+//可能なら相手側に BYEBYE を送信してから (ベストエフォート、エラー無視)、ソケットを閉じてメッセージを格納する。
+static void netTransitionToError(const char* message)
+{
+	//ベストエフォート BYEBYE 送信 (相手側に異常終了を通知、戻り値は無視)
+	if (netSocket != INVALID_SOCKET)
+	{
+		send(netSocket, NET_MSG_BYEBYE, NET_MSG_BYEBYE_LEN, 0);
+	}
+	netCleanupSockets();
+	//エラー文言を保持 (render が GAME2_STATE_ERROR で表示する)
+	strncpy(netErrorMessage, message, NET_BUF_SIZE - 1);
+	netErrorMessage[NET_BUF_SIZE - 1] = '\0';
+	status2 = GAME2_STATE_ERROR;
+	netStatus = NET_STATUS_INIT;
+	MyOutputDebugString(_T("ネット対戦エラー: %s\n"), message);
+}
 
-			//相手サーバーに接続
-			saCl.sin_family = AF_INET;
-			saCl.sin_addr = *((LPIN_ADDR)*lpHostEntry->h_addr_list);
-			saCl.sin_port = htons(nPort);
-			nRet = connect(s, (LPSOCKADDR)&saCl, sizeof(struct sockaddr));
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("connect failed (err=%d)\n"), WSAGetLastError());
-				closesocket(s);
-				return -1;
-			}
-
-			//自スコアを文字列化して送信 (δ-3a: SCORE: プレフィックス + %.2f 整形)
-			snprintf(szBuf, NET_BUF_SIZE, "%s%.2f", NET_MSG_PREFIX_SCORE, state.Score);
-			nRet = send(s, szBuf, strlen(szBuf), 0);
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("send failed for Client (err=%d)\n"), WSAGetLastError());
-				closesocket(s);
-				return -1;
-			}
-			MyOutputDebugString(_T("送信: %s\n"), szBuf);
-
-			//相手スコア受信 (γ-2-b バグ #4: 双方向交換のため Client にも recv 追加)
-			memset(szBuf, 0, sizeof(szBuf));
-			nRet = recv(s, szBuf, sizeof(szBuf), 0);
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("recv failed for Client (err=%d)\n"), WSAGetLastError());
-				closesocket(s);
-				return -1;
-			}
-			//受信した相手のスコアを格納する (γ-3: for ループから memcpy 化、可読性 + 性能)
-			memcpy(rcScore, szBuf, NET_BUF_SIZE);
-			//δ-3a: γ-3 では RECEIVED で完了扱いだったが、新 7 値 enum では「双方交換完了」= EXCHANGED に意味再割り当て
-			netStatus = NET_STATUS_EXCHANGED;
-			MyOutputDebugString(_T("受信: %s\n"), szBuf);
-
-			//γ-2-c: closesocket でリソース解放 (旧コードは漏れていた)
-			closesocket(s);
-			break;
+//δ-3b: 受信メッセージのプレフィックスを判別 (SPEC_NETWORK.md §5.2)
+//outScore が NULL でなく SCORE: の場合のみ payload を float 化して書き戻す
+static NET_MSG_TYPE netParseMessage(const char* buf, float* outScore)
+{
+	if (strncmp(buf, NET_MSG_PREFIX_SCORE, NET_PREFIX_LEN_SCORE) == 0)
+	{
+		if (outScore != NULL)
+		{
+			*outScore = strtof(buf + NET_PREFIX_LEN_SCORE, NULL);
 		}
-		//こちらが受信側 (Server = 旧 Defender): socket → bind → listen → accept → recv → send → netStatus=EXCHANGED → closesocket
-		case SIDE_SELECT_SERVER: {
-			SOCKET		lisS = INVALID_SOCKET;	//listen 用ソケット (Server 専用)
-			SOCKADDR_IN saSv;
-			short		nPort = NET_PORT;
+		return NET_MSG_TYPE_SCORE;
+	}
+	if (strncmp(buf, NET_MSG_END, NET_MSG_END_LEN) == 0)
+	{
+		return NET_MSG_TYPE_END;
+	}
+	if (strncmp(buf, NET_MSG_BYEBYE, NET_MSG_BYEBYE_LEN) == 0)
+	{
+		return NET_MSG_TYPE_BYEBYE;
+	}
+	if (buf[0] == '\0')
+	{
+		return NET_MSG_TYPE_NONE;	//受信ゼロバイト (相手切断 or データなし)
+	}
+	return NET_MSG_TYPE_UNKNOWN;
+}
 
-			//Server 専用: 自ホスト名/IP をデバッグ出力 (δ-2、どこで listen 待機しているか確認用)
-			//Client 側は localhost 接続のため自ホスト情報は不要、関数頭の共通プロローグから移動
-			nRet = gethostname(szBuf, sizeof(szBuf));
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("gethostname failed (err=%d)\n"), WSAGetLastError());
-				return -1;
-			}
-			LPHOSTENT lpInAddr = gethostbyname(szBuf);
-			if (lpInAddr == NULL)
-			{
-				MyOutputDebugString(_T("gethostbyname failed for self host (err=%d)\n"), WSAGetLastError());
-				return -1;
-			}
-			MyOutputDebugString(_T("\n PC info: %s or %s\n"),
-				szBuf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
+//δ-3b: ネット対戦を開始する (N キー押下で呼ばれる、non-blocking 構成の初期化)
+//Client: socket → connect (localhost なので同期で十分高速) → 非同期化 → CONNECTED
+//Server: socket → bind → listen → 非同期化 → INIT (次フレーム以降の netStep で accept)
+//返り値: 成功 0 / 失敗 -1 (失敗時は netTransitionToError が呼ばれ status2=ERROR になる)
+static int netStart(void)
+{
+	//全フラグ・ソケット・バッファをリセット (前ラウンドの残骸を持ち越さない)
+	netCleanupSockets();
+	netStatus           = NET_STATUS_INIT;
+	netStallFrames      = 0;
+	netScoreSent        = FALSE;
+	netScoreReceived    = FALSE;
+	netEndSent          = FALSE;
+	netEndReceived      = FALSE;
+	netErrorMessage[0]  = '\0';
+	rcScore[0]          = '\0';
 
-			//γ-2-b 構造整理 #5: socket+bind+listen+accept を Server case 内に集約
-			//(Client では使わないリソースなので関数頭から移動)
-			lisS = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-			if (lisS == INVALID_SOCKET)
-			{
-				MyOutputDebugString(_T("socket failed for Server (err=%d)\n"), WSAGetLastError());
-				return -1;
-			}
-			saSv.sin_family = AF_INET;
-			saSv.sin_addr.s_addr = INADDR_ANY;	//Let Winsock supply address
-			saSv.sin_port = htons(nPort);
-			nRet = bind(lisS, (LPSOCKADDR)&saSv, sizeof(struct sockaddr));
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("bind failed (err=%d)\n"), WSAGetLastError());
-				closesocket(lisS);
-				return -1;
-			}
-
-			//Connect 要求が来るまで待機 (同期 listen/accept、フリーズ仕様)
-			nRet = listen(lisS, SOMAXCONN);
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("listen failed (err=%d)\n"), WSAGetLastError());
-				closesocket(lisS);
-				return -1;
-			}
-			MyOutputDebugString("接続待機状態に入ります…");
-
-			//受信を承諾する (相手の connect まで accept ブロック)
-			remS = accept(lisS, NULL, NULL);
-			if (remS == INVALID_SOCKET)
-			{
-				MyOutputDebugString(_T("accept failed (err=%d)\n"), WSAGetLastError());
-				closesocket(lisS);
-				return -1;
-			}
-			MyOutputDebugString("接続完了しました\n");
-
-			//相手スコア受信 (γ-2-b バグ #2 修正: while (szBuf != NULL) 無限ループ削除、1 回交換)
-			memset(szBuf, 0, sizeof(szBuf));
-			nRet = recv(remS, szBuf, sizeof(szBuf), 0);
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("recv failed for Server (err=%d)\n"), WSAGetLastError());
-				closesocket(remS);
-				closesocket(lisS);
-				return -1;
-			}
-			//δ-2: cnt 変数 + "%ld>%s" 書式を撤去し Client と同じ "受信: %s" 書式に統一
-			MyOutputDebugString(_T("受信: %s\n"), szBuf);
-
-			//受信した相手のスコアを格納する (γ-3: for ループから memcpy 化、可読性 + 性能)
-			memcpy(rcScore, szBuf, NET_BUF_SIZE);
-
-			//自スコアを文字列化して送信 (δ-3a: SCORE: プレフィックス + %.2f 整形)
-			snprintf(szBuf, NET_BUF_SIZE, "%s%.2f", NET_MSG_PREFIX_SCORE, state.Score);
-			nRet = send(remS, szBuf, strlen(szBuf), 0);
-			if (nRet == SOCKET_ERROR)
-			{
-				MyOutputDebugString(_T("send failed for Server (err=%d)\n"), WSAGetLastError());
-				closesocket(remS);
-				closesocket(lisS);
-				return -1;
-			}
-			//δ-3a: γ-3 では RECEIVED で完了扱いだったが、新 7 値 enum では「双方交換完了」= EXCHANGED に意味再割り当て
-			netStatus = NET_STATUS_EXCHANGED;
-			MyOutputDebugString(_T("送信: %s\n"), szBuf);
-
-			//γ-2-c: closesocket でリソース解放 (lisS は Server 専用、両方解放、LIFO 順)
-			closesocket(remS);
-			closesocket(lisS);
-			break;
+	if (sideSelect == SIDE_SELECT_CLIENT)
+	{
+		//Client: socket → connect (localhost は即応のため同期 OK) → 非同期化
+		//接続先 (NET_TARGET_HOST = "localhost", δ-3a で定数化)
+		LPHOSTENT lpHostEntry = gethostbyname(NET_TARGET_HOST);
+		if (lpHostEntry == NULL)
+		{
+			MyOutputDebugString(_T("gethostbyname failed for %s (err=%d)\n"), NET_TARGET_HOST, WSAGetLastError());
+			netTransitionToError("ホスト名解決に失敗しました");
+			return -1;
 		}
+
+		netSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (netSocket == INVALID_SOCKET)
+		{
+			MyOutputDebugString(_T("socket failed for Client (err=%d)\n"), WSAGetLastError());
+			netTransitionToError("ソケット作成に失敗しました");
+			return -1;
+		}
+
+		SOCKADDR_IN saCl;
+		saCl.sin_family = AF_INET;
+		saCl.sin_addr   = *((LPIN_ADDR)*lpHostEntry->h_addr_list);
+		saCl.sin_port   = htons(NET_PORT);
+		if (connect(netSocket, (LPSOCKADDR)&saCl, sizeof(struct sockaddr)) == SOCKET_ERROR)
+		{
+			MyOutputDebugString(_T("connect failed (err=%d)\n"), WSAGetLastError());
+			netTransitionToError("接続に失敗しました");
+			return -1;
+		}
+
+		//connect 完了後に非同期化 (以降の send/recv は WSAEWOULDBLOCK 想定)
+		if (netSetNonBlocking(netSocket) != 0)
+		{
+			netTransitionToError("ソケットの非同期化に失敗しました");
+			return -1;
+		}
+
+		netStatus      = NET_STATUS_CONNECTED;
+		netStallFrames = 0;
+		MyOutputDebugString(_T("接続完了 (Client)\n"));
+		return 0;
+	}
+	else if (sideSelect == SIDE_SELECT_SERVER)
+	{
+		//Server 専用: 自ホスト名/IP をデバッグ出力 (δ-2、どこで listen 待機しているか確認用)
+		char szSelf[SERVER_NAME_SIZE];
+		if (gethostname(szSelf, sizeof(szSelf)) == SOCKET_ERROR)
+		{
+			MyOutputDebugString(_T("gethostname failed (err=%d)\n"), WSAGetLastError());
+			netTransitionToError("ホスト名取得に失敗しました");
+			return -1;
+		}
+		LPHOSTENT lpInAddr = gethostbyname(szSelf);
+		if (lpInAddr == NULL)
+		{
+			MyOutputDebugString(_T("gethostbyname failed for self host (err=%d)\n"), WSAGetLastError());
+			netTransitionToError("ホスト名解決に失敗しました");
+			return -1;
+		}
+		MyOutputDebugString(_T("\n PC info: %s or %s\n"),
+			szSelf, inet_ntoa(*(LPIN_ADDR)*lpInAddr->h_addr_list));
+
+		netListenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (netListenSocket == INVALID_SOCKET)
+		{
+			MyOutputDebugString(_T("socket failed for Server (err=%d)\n"), WSAGetLastError());
+			netTransitionToError("ソケット作成に失敗しました");
+			return -1;
+		}
+
+		SOCKADDR_IN saSv;
+		saSv.sin_family      = AF_INET;
+		saSv.sin_addr.s_addr = INADDR_ANY;
+		saSv.sin_port        = htons(NET_PORT);
+		if (bind(netListenSocket, (LPSOCKADDR)&saSv, sizeof(struct sockaddr)) == SOCKET_ERROR)
+		{
+			MyOutputDebugString(_T("bind failed (err=%d)\n"), WSAGetLastError());
+			netTransitionToError("bind に失敗しました");
+			return -1;
+		}
+
+		if (listen(netListenSocket, SOMAXCONN) == SOCKET_ERROR)
+		{
+			MyOutputDebugString(_T("listen failed (err=%d)\n"), WSAGetLastError());
+			netTransitionToError("listen に失敗しました");
+			return -1;
+		}
+
+		//Listen socket を非同期化 (δ-3b の本命: accept を WSAEWOULDBLOCK で polling 化、フレーム凍結回避)
+		if (netSetNonBlocking(netListenSocket) != 0)
+		{
+			netTransitionToError("リッスン非同期化に失敗しました");
+			return -1;
+		}
+
+		MyOutputDebugString(_T("接続待機開始 (Server、polling 中)\n"));
+		netStatus      = NET_STATUS_INIT;	//accept 完了で CONNECTED に遷移
+		netStallFrames = 0;
+		return 0;
 	}
 
-	return 0;
+	//Side 未選択など (本来到達不能)
+	netTransitionToError("対戦の役割が選ばれていません");
+	return -1;
+}
+
+//δ-3b: 1 回の send 試行 (非同期、WSAEWOULDBLOCK は再試行扱い)
+//返り値: 1 = 送信成功 / 0 = 未完了 (再試行) / -1 = 異常 (caller がエラー遷移する責任)
+static int netTrySend(const char* payload, int payloadLen)
+{
+	int nRet = send(netSocket, payload, payloadLen, 0);
+	if (nRet == SOCKET_ERROR)
+	{
+		int err = WSAGetLastError();
+		if (err == WSAEWOULDBLOCK)
+		{
+			return 0;	//まだ送れないだけ、次フレームで再試行
+		}
+		MyOutputDebugString(_T("send failed (err=%d)\n"), err);
+		return -1;
+	}
+	return 1;
+}
+
+//δ-3b: 1 回の recv 試行 (非同期、WSAEWOULDBLOCK は再試行扱い)
+//返り値: 1 = 受信成功 (out に格納) / 0 = 未完了 (再試行) / -1 = 異常 (caller がエラー遷移する責任)
+//※ buf は NET_BUF_SIZE バイトの領域を渡すこと、関数内で memset 0 クリアしてから recv する
+static int netTryRecv(char* buf)
+{
+	memset(buf, 0, NET_BUF_SIZE);
+	int nRet = recv(netSocket, buf, NET_BUF_SIZE - 1, 0);
+	if (nRet == SOCKET_ERROR)
+	{
+		int err = WSAGetLastError();
+		if (err == WSAEWOULDBLOCK)
+		{
+			return 0;
+		}
+		MyOutputDebugString(_T("recv failed (err=%d)\n"), err);
+		return -1;
+	}
+	if (nRet == 0)
+	{
+		//相手側が接続を綺麗にクローズした (FIN)。プロトコル的には BYEBYE 相当扱い
+		MyOutputDebugString(_T("recv: peer closed connection\n"));
+		return -1;
+	}
+	return 1;
+}
+
+//δ-3b: 毎フレーム呼ばれる state machine の 1 ステップ。
+//N キー押下 (netStart 成功) 以降、netStatus に応じて 1 つだけ進める。
+//ネット対戦未開始 (netStatus==INIT かつソケット未確保) は早期 return。
+static void netStep(void)
+{
+	//ネット対戦未開始ガード (INIT かつソケット未確保 = N キー前)
+	if (netStatus == NET_STATUS_INIT && netSocket == INVALID_SOCKET && netListenSocket == INVALID_SOCKET)
+	{
+		return;
+	}
+
+	//タイムアウト計測 (停滞フレーム数、進展時にゼロリセット)
+	netStallFrames++;
+	if (netStallFrames >= NET_TIMEOUT_FRAMES)
+	{
+		netTransitionToError("タイムアウト (30秒進展なし)");
+		return;
+	}
+
+	switch (netStatus)
+	{
+	case NET_STATUS_INIT:
+	{
+		//Server: accept を polling 試行 (Client は netStart で CONNECTED まで進むので来ない)
+		if (sideSelect != SIDE_SELECT_SERVER || netListenSocket == INVALID_SOCKET) break;
+
+		SOCKET accepted = accept(netListenSocket, NULL, NULL);
+		if (accepted == INVALID_SOCKET)
+		{
+			int err = WSAGetLastError();
+			if (err == WSAEWOULDBLOCK) return;	//まだ来てない、次フレームへ
+			MyOutputDebugString(_T("accept failed (err=%d)\n"), err);
+			netTransitionToError("接続待ち受けに失敗しました");
+			return;
+		}
+
+		//accept 成功。Listen ソケットは役目終了、accepted を通信用に昇格
+		closesocket(netListenSocket);
+		netListenSocket = INVALID_SOCKET;
+		netSocket       = accepted;
+		if (netSetNonBlocking(netSocket) != 0)
+		{
+			netTransitionToError("ソケットの非同期化に失敗しました");
+			return;
+		}
+		MyOutputDebugString(_T("接続完了 (Server)\n"));
+		netStatus      = NET_STATUS_CONNECTED;
+		netStallFrames = 0;
+		break;
+	}
+
+	case NET_STATUS_CONNECTED:
+	case NET_STATUS_SENT:
+	case NET_STATUS_RECEIVED:
+	{
+		//SCORE 送受信フェーズ。送信と受信を並行に進め、両方完了で EXCHANGED へ。
+		BOOL progressed = FALSE;
+
+		//自スコア送信 (未送信なら試行)
+		if (!netScoreSent)
+		{
+			char szBuf[NET_BUF_SIZE];
+			snprintf(szBuf, NET_BUF_SIZE, "%s%.2f", NET_MSG_PREFIX_SCORE, state.Score);
+			int r = netTrySend(szBuf, (int)strlen(szBuf));
+			if (r < 0)
+			{
+				netTransitionToError("スコア送信に失敗しました");
+				return;
+			}
+			if (r == 1)
+			{
+				netScoreSent = TRUE;
+				progressed   = TRUE;
+				MyOutputDebugString(_T("送信: %s\n"), szBuf);
+			}
+		}
+
+		//相手スコア受信 (未受信なら試行)
+		if (!netScoreReceived)
+		{
+			char szBuf[NET_BUF_SIZE];
+			int r = netTryRecv(szBuf);
+			if (r < 0)
+			{
+				netTransitionToError("スコア受信に失敗しました");
+				return;
+			}
+			if (r == 1)
+			{
+				float opp;
+				NET_MSG_TYPE t = netParseMessage(szBuf, &opp);
+				if (t == NET_MSG_TYPE_SCORE)
+				{
+					memcpy(rcScore, szBuf, NET_BUF_SIZE);
+					netScoreReceived = TRUE;
+					progressed       = TRUE;
+					MyOutputDebugString(_T("受信: %s\n"), szBuf);
+				}
+				else if (t == NET_MSG_TYPE_BYEBYE)
+				{
+					netTransitionToError("相手が切断しました");
+					return;
+				}
+				else
+				{
+					netTransitionToError("通信エラー (不明なメッセージ)");
+					return;
+				}
+			}
+		}
+
+		//状態遷移: 両方完了 → EXCHANGED、片方完了 → SENT or RECEIVED
+		if (netScoreSent && netScoreReceived)
+		{
+			netStatus      = NET_STATUS_EXCHANGED;
+			netStallFrames = 0;
+		}
+		else if (netScoreSent && netStatus != NET_STATUS_SENT)
+		{
+			netStatus      = NET_STATUS_SENT;
+			netStallFrames = 0;
+		}
+		else if (netScoreReceived && netStatus != NET_STATUS_RECEIVED)
+		{
+			netStatus      = NET_STATUS_RECEIVED;
+			netStallFrames = 0;
+		}
+		else if (progressed)
+		{
+			netStallFrames = 0;
+		}
+		break;
+	}
+
+	case NET_STATUS_EXCHANGED:
+		//SCORE 交換完了、render が勝敗を表示中。END 送信フェーズに進む
+		netStatus      = NET_STATUS_ENDING;
+		netStallFrames = 0;
+		break;
+
+	case NET_STATUS_ENDING:
+	{
+		//END 送受信フェーズ。両方完了で END (切断完了) へ
+		BOOL progressed = FALSE;
+
+		if (!netEndSent)
+		{
+			int r = netTrySend(NET_MSG_END, NET_MSG_END_LEN);
+			if (r < 0)
+			{
+				netTransitionToError("終了通知の送信に失敗しました");
+				return;
+			}
+			if (r == 1)
+			{
+				netEndSent = TRUE;
+				progressed = TRUE;
+				MyOutputDebugString(_T("送信: END\n"));
+			}
+		}
+
+		if (!netEndReceived)
+		{
+			char szBuf[NET_BUF_SIZE];
+			int r = netTryRecv(szBuf);
+			if (r < 0)
+			{
+				//相手側 close を BYEBYE 扱いとせず、終了通知として受理 (相手が先に切ったケース)
+				netEndReceived = TRUE;
+				progressed     = TRUE;
+				MyOutputDebugString(_T("受信: 相手が先に切断 (END 扱い)\n"));
+			}
+			else if (r == 1)
+			{
+				NET_MSG_TYPE t = netParseMessage(szBuf, NULL);
+				if (t == NET_MSG_TYPE_END || t == NET_MSG_TYPE_BYEBYE)
+				{
+					netEndReceived = TRUE;
+					progressed     = TRUE;
+					MyOutputDebugString(_T("受信: %s\n"), szBuf);
+				}
+				//SCORE や UNKNOWN は無視 (END フェーズでは受け付けない)
+			}
+		}
+
+		if (netEndSent && netEndReceived)
+		{
+			netStatus = NET_STATUS_END;
+			netCleanupSockets();
+			MyOutputDebugString(_T("切断完了\n"));
+		}
+		else if (progressed)
+		{
+			netStallFrames = 0;
+		}
+		break;
+	}
+
+	case NET_STATUS_END:
+		//切断完了、X キーでメニュー復帰待ち。state machine からは何もしない
+		break;
+
+	default:
+		break;
+	}
 }
 
 //	フレーム処理
@@ -354,29 +665,52 @@ void moveGame2Scene()
 		//スコア計算 (共通関数、目標との差分から算出)
 		timerCalcScore(&state);
 
-		//Rキーで状態リセット
+		//δ-3b: ネット対戦の state machine を毎フレーム 1 ステップ進める
+		//N キー前 (netStatus==INIT かつソケット未確保) は内部で早期 return するので常時呼んで良い
+		netStep();
+
+		//Rキーで状態リセット (ネット対戦中は受け付けない、INIT/END でのみ有効)
 		if (CheckHitKey(KEY_INPUT_R) == 1)
 		{
-			status2 = GAME2_STATE_INIT;
-		}
-
-		//Xキーでタイトルに戻す
-		if (CheckHitKey(KEY_INPUT_X) == 1)
-		{
-			changeScene(SCENE_MENU);
-		}
-
-		//Nキーでネットワーク対戦をする
-		if (CheckHitKey(KEY_INPUT_N) == 1)
-		{
-			//δ-3a: caller でネット対戦の戻り値を検査 (失敗時のログ確認の土台、UI 表示は δ-3b で追加)
-			//現状は同期 netBattle なので、ここでブロックして戻ってくるまで全画面凍結する点は δ-3b で解消予定
-			if (netBattle(state.Score) != 0)
+			if (netStatus == NET_STATUS_INIT || netStatus == NET_STATUS_END)
 			{
-				MyOutputDebugString(_T("netBattle failed, see preceding log for WSA error code\n"));
+				netCleanupSockets();
+				netStatus = NET_STATUS_INIT;
+				status2   = GAME2_STATE_INIT;
 			}
 		}
 
+		//Xキーでタイトルに戻す (ネット対戦中なら BYEBYE 送信 + cleanup してから遷移)
+		if (CheckHitKey(KEY_INPUT_X) == 1)
+		{
+			if (netSocket != INVALID_SOCKET)
+			{
+				//ベストエフォート BYEBYE 通知
+				send(netSocket, NET_MSG_BYEBYE, NET_MSG_BYEBYE_LEN, 0);
+			}
+			netCleanupSockets();
+			netStatus = NET_STATUS_INIT;
+			changeScene(SCENE_MENU);
+		}
+
+		//Nキーでネットワーク対戦を開始 (δ-3b: 非同期版、netStart が socket 確保 + 接続待機 polling 開始)
+		//二重起動防止のため netStatus == INIT のみ受け付ける
+		if (CheckHitKey(KEY_INPUT_N) == 1 && netStatus == NET_STATUS_INIT && netSocket == INVALID_SOCKET && netListenSocket == INVALID_SOCKET)
+		{
+			netStart();	//失敗時は内部で netTransitionToError → status2=ERROR 遷移
+		}
+
+		break;
+
+	case GAME2_STATE_ERROR://δ-3b: ネット対戦エラー画面、ユーザー手動確認後にメニュー復帰
+		//Z/X キー押下でメニューへ (押下感を出すため EdgeInput ではなく CheckHitKey でも可、即時応答優先で CheckHitKey)
+		if (CheckHitKey(KEY_INPUT_Z) == 1 || CheckHitKey(KEY_INPUT_X) == 1)
+		{
+			//念のため (netTransitionToError で既に cleanup 済だが、二重防御として実施)
+			netCleanupSockets();
+			netStatus = NET_STATUS_INIT;
+			changeScene(SCENE_MENU);
+		}
 		break;
 
 	case GAME2_STATE_SIDE_SELECT:		//まず送信者か、受信者かを選択してもらう
@@ -447,18 +781,52 @@ void renderGame2Scene(void)
 		return;	//SIDE_SELECT 中は計測関連描画スキップ
 	}
 
-	//Rリセット可能であることを通知
+	//δ-3b: エラー画面 (GAME2_STATE_ERROR)。netTransitionToError でセットされた netErrorMessage を表示し、
+	//Z/X キー押下を待つ。計測関連描画はスキップして専用画面に集中
+	if (status2 == GAME2_STATE_ERROR)
+	{
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "通信エラーが発生しました", ColorRed);
+		DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_TARGET, ColorWhite, "原因: %s", netErrorMessage);
+		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_SCORE, "Z または X キーでメニューに戻る", ColorYellow);
+		return;	//エラー中は計測関連描画スキップ
+	}
+
+	//δ-3b: DONE 中の操作案内をネット対戦の進行状況で出し分け (netStatus に応じた誘導)
 	if (status2 == GAME2_STATE_DONE)
 	{
-		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Rキーでリセット、Nキーでネット対戦", ColorWhite);
+		switch (netStatus)
+		{
+		case NET_STATUS_INIT:
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Rキーでリセット、Nキーでネット対戦", ColorWhite);
+			break;
+		case NET_STATUS_CONNECTED:
+		case NET_STATUS_SENT:
+		case NET_STATUS_RECEIVED:
+			//SCORE 送受信中、まだ勝敗判定までいかない
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "対戦相手と通信中…", ColorYellow);
+			break;
+		case NET_STATUS_EXCHANGED:
+		case NET_STATUS_ENDING:
+			//render の下段で勝敗結果を表示するため、ここは状態通知のみ
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "終了処理中…", ColorYellow);
+			break;
+		case NET_STATUS_END:
+			DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "切断完了、Xキーでメニューへ", ColorWhite);
+			break;
+		default:
+			break;
+		}
 	}
 	else
 	{
 		DrawString(LAYOUT_X_DEFAULT, LAYOUT_Y_STATUS, "Gキーで開始、Sキーで停止", ColorWhite);
 	}
 
-	//ネット対戦を終えた場合：勝敗を判断し、表示する
-	if (netStatus == NET_STATUS_EXCHANGED)
+	//ネット対戦が EXCHANGED 以降ならば勝敗を判定して表示する (END 状態でも勝敗を残す、δ-3b で表示範囲拡張)
+	//相手スコアは下段でも数値表示するため scJudge を外側スコープで保持
+	BOOL netExchangeDone = (netStatus == NET_STATUS_EXCHANGED || netStatus == NET_STATUS_ENDING || netStatus == NET_STATUS_END);
+	float scJudge = 0.0f;
+	if (netExchangeDone)
 	{
 		//受信したスコアを浮動小数点数に戻す (双方 0〜100 の正規化達成率、δ-1 以降)
 		//δ-3a: "SCORE:" プレフィックスを剥がして数値部だけ strtof でパース。プレフィックス無しは旧プロトコル互換扱いで全文字列をパース
@@ -467,7 +835,7 @@ void renderGame2Scene(void)
 		{
 			scorePayload = rcScore + NET_PREFIX_LEN_SCORE;
 		}
-		float scJudge = strtof(scorePayload, NULL);
+		scJudge = strtof(scorePayload, NULL);
 
 		//floorf 整数化は δ-1 で除去 (0〜100 スケールに縮小したため、95.7 vs 95.3 が同点扱いになり粒度が粗すぎる)。
 		//float 直接比較に変更。引き分けは事実上ピッタリ同点のみ。
@@ -501,10 +869,10 @@ void renderGame2Scene(void)
 	else if (status2 == GAME2_STATE_DONE)
 	{
 		DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorYellow, "ただいま：%3.1f倍速", state.CalMulti);
-		//ネット上でのスコア交換が終わったならば、相手のスコアに表示を変える
-		if (netStatus == NET_STATUS_EXCHANGED)
+		//δ-3b: スコア交換以降は相手のスコアに表示を変える (SCORE: プレフィックスを剥がして数値表示)
+		if (netExchangeDone)
 		{
-			DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorRed, "相手のスコアは%s", rcScore);
+			DrawFormatString(LAYOUT_X_DEFAULT, LAYOUT_Y_SPEED, ColorRed, "相手のスコアは%.2f点", scJudge);
 		}
 	}
 
@@ -523,6 +891,13 @@ void renderGame2Scene(void)
 //	シーン終了時の後処理
 void releaseGame2Scene(void)
 {
+	//δ-3b: 中断時のソケット漏れ防止 (シーン途中で X キー押下や強制遷移した場合の保険)
+	//ベストエフォート BYEBYE 送信 (相手側に切断通知、戻り値無視)
+	if (netSocket != INVALID_SOCKET)
+	{
+		send(netSocket, NET_MSG_BYEBYE, NET_MSG_BYEBYE_LEN, 0);
+	}
+	netCleanupSockets();
 	WSACleanup();
 }
 

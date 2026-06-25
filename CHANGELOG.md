@@ -6,6 +6,35 @@
 
 ---
 
+## [0.10.0] - 2026-06-25 — フェーズ δ 完了
+
+### Changed
+- **δ-3b**: ネット運用強化の本体改修パート。同期 `netBattle` 関数を全面解体し、毎フレーム駆動の非同期 state machine へ移行。フェーズ δ 完了 (α/β/γ/δ 全コンプリート)
+- ソケット (`netSocket` / `netListenSocket`) を file-scope に昇格し、フレームをまたいで保持。`ioctlsocket FIONBIO` で全 socket を non-blocking 化、`recv` / `accept` の `WSAEWOULDBLOCK` を「次フレームで再試行」として正常扱い。Server の `accept` 待機中フリーズ問題を解消
+- `moveGame2Scene` の `GAME2_STATE_DONE` ケースに `netStep()` を組み込み、毎フレーム NET_STATUS に応じた 1 ステップ進行 (CONNECTED → SENT/RECEIVED → EXCHANGED → ENDING → END)
+- `NET_STATUS_EXCHANGED` 以降 (ENDING / END 含む) は `renderGame2Scene` で勝敗結果を継続表示
+- 相手スコア表示で `SCORE:` プレフィックスを剥がして `%.2f` 数値表示 (γ-3 までは raw 文字列をそのまま表示していた)
+- X キーで途中離脱時に `BYEBYE` をベストエフォート送信 + ソケット LIFO 順クローズ + メニュー遷移
+- R キーのリセットを `NET_STATUS_INIT` / `END` のみ受け付け (battle 中の誤操作防止)
+
+### Added
+- `GAME2_STATE_ERROR` 状態 + `netErrorMessage` バッファ。`netTransitionToError(message)` ヘルパで遷移、`renderGame2Scene` で原因表示と「Z/X キーで戻る」案内
+- 進展なし 30 秒 (`NET_TIMEOUT_FRAMES = 30 * FPS = 1800` フレーム) のタイムアウト機構。`netStallFrames` カウンタが state 遷移ごとにリセットされ、ENDING フェーズも含めて停滞 30 秒で `GAME2_STATE_ERROR` 遷移
+- `NET_MSG_TYPE` enum + `netParseMessage` パーサ (SPEC_NETWORK.md §5.2 準拠、`SCORE:` / `END` / `BYEBYE` / UNKNOWN を判別)
+- `NET_MSG_END_LEN` / `NET_MSG_BYEBYE_LEN` 定数 (毎回 `strlen` を避ける)
+- 非同期 state machine 用ヘルパ群: `netSetNonBlocking` / `netCleanupSockets` / `netTryRecv` / `netTrySend` / `netStart` / `netStep`
+- `releaseGame2Scene` でソケット未解放時に `BYEBYE` 送信 + cleanup (シーン途中離脱の保険)
+
+### Removed
+- 旧 `netBattle(float score)` 関数 (約 150 行の同期実装、機能は分解して上記ヘルパ群に移行)
+- Server 側 `accept` の同期ブロック (フリーズ仕様)
+
+### Known Limitations
+- TCP は stream protocol のため、Client が SCORE と END を連続送信した時に Server の単一 `recv` で結合されうる。現状は localhost + 自然なフレーム間隔で分離される前提に頼る。長さプレフィックス等の正式なメッセージ framing は将来課題
+- ネット系定数の `GameMain.h` 昇格は見送り (Game4 等でネット対戦追加する時点で再判断)
+
+---
+
 ## [0.9.3] - 2026-06-25
 
 ### Changed
