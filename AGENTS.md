@@ -1,4 +1,4 @@
-﻿# CLAUDE.md — TwistTimeStopper入口
+﻿# AGENTS.md — TwistTimeStopper入口
 
 詳細規約のcanonical sourceは`PROJECT_GUIDE.md`です。全体を常時読み込まず、作業に該当する節だけ参照してください。
 
