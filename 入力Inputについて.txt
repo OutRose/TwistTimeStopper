@@ -1,4 +1,4 @@
-﻿現時点では１プレイヤーのみ設定。
+現時点では１プレイヤーのみ設定。
 PAD_INPUT_UP
 PAD_INPUT_DOWN
 PAD_INPUT_LEFT

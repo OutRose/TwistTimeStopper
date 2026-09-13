@@ -1,4 +1,4 @@
-﻿//メイン関数
+//メイン関数
 #include "GameMain.h"
 #include "GameSceneMain.h"
 

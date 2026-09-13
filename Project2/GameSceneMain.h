@@ -1,4 +1,4 @@
-﻿#ifndef GAMESCENEMAIN_H_
+#ifndef GAMESCENEMAIN_H_
 #define GAMESCENEMAIN_H_
 
 #include "GameMain.h"

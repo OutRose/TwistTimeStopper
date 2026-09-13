@@ -1,4 +1,4 @@
-﻿# PROJECT_GUIDE.md — TwistTimeStopper 詳細規約
+# PROJECT_GUIDE.md — TwistTimeStopper 詳細規約
 
 本ファイルを詳細規約のcanonical sourceとします。本文中の`CLAUDE.md`への自己参照は、本ファイルの対応する節を指します。
 
@@ -6,13 +6,13 @@ Visual Studio (MSVC) + DxLib による C++ ゲーム。Project2.sln / [Project2/
 
 ---
 
-## ファイルエンコーディング: 全ファイル UTF-8 BOM 統一
+## ファイルエンコーディング: UTF-8/LF
 
-**2026-06-22 にプロジェクト全体を UTF-8 BOM (`EF BB BF`) に統一済み。新規ファイルも UTF-8 BOM で作成すること。**
+コード、project設定、文書はBOMなしUTF-8/LFで保存する。[.editorconfig](.editorconfig) と [.gitattributes](.gitattributes) で維持する。C++ソースは全構成で`/source-charset:utf-8`を指定して読み取り、MBCSの実行文字セットは従来どおり維持する。外部DxLibのCP932ヘッダーに起因するC4010/C4828だけは[GameMain.h](Project2/GameMain.h)のインクルード中に限り抑制する。バイナリと生成物は変換対象外とする。
 
-[.editorconfig](.editorconfig) で `charset = utf-8-bom` を強制しているため、Visual Studio / VS Code は自動的に UTF-8 BOM で保存する。**Claude Code の Edit ツールは既存ファイルの BOM を保持するが、Write ツールは BOM を付与しない**ため、新規作成や全体書き換えに Write を使う場合は要注意 (下記「Claude Code Write ツール使用時の注意」参照)。
+新規・編集したテキストはUTF-8でdecode可能、BOMとCRを含まないことを確認する。以下のBOM付与手順と当時の障害記録は、旧方針の履歴として保存する。
 
-### 新規ファイル作成時の注意
+### 旧BOM運用時の参考（履歴）
 
 PowerShell で空ファイルを作る場合は BOM を明示:
 ```powershell
@@ -21,7 +21,7 @@ PowerShell で空ファイルを作る場合は BOM を明示:
 
 `Set-Content` や `Out-File` のデフォルトは UTF-8 (BOM なし) になりがちなので避ける。
 
-### Claude Code Write ツール使用時の注意
+### 旧Writeツール運用の注意（履歴）
 
 **Claude Code の Write ツールは UTF-8 BOM を自動付与しない** (改行も LF になる) ため、新規ファイル作成や既存ファイルの全体書き換えに使うと、Visual Studio が CP932 として誤解釈し、コメント内のダメ文字 (`ソ/表/能/予` など 2 バイト目が `0x5C` の文字) の `\` 混入で構文崩壊が発生する (2026-06-24 GameSceneMain.cpp β-D-1 で実際に発生、C2059/C2143 が連鎖して 30+ 件のビルドエラー)。
 
@@ -39,7 +39,7 @@ PowerShell で空ファイルを作る場合は BOM を明示:
 
 [.editorconfig](.editorconfig) は Visual Studio / VS Code に効くが、Claude Code の Write には効かない。
 
-### 万一 Shift-JIS や無 BOM が紛れ込んだ場合の復旧
+### 旧BOM復旧手順（履歴）
 
 ```powershell
 $path = '...'
@@ -239,7 +239,7 @@ scJudge = floorf(scJudge);
 
 ### C4129 (unrecognized character escape)
 
-原因: Shift-JIS 文字列リテラル中の **ダメ文字** (2 バイト目が `0x5C = '\\'` になる「ソ」「表」「能」など)。UTF-8 BOM 化後は理論上発生しないが、もし過去のソースから残っていれば該当文字を別の漢字に置換するか、デバッグ用なら ASCII 化が最小修正。
+旧CP932運用では、文字列リテラル中の2バイト目が `0x5C = '\\'` となる文字（「ソ」「表」「能」など）が原因だった。現行はBOMなしUTF-8を`/source-charset:utf-8`で読み取る。再発時はビルドオプションと対象ファイルのUTF-8/LFを確認する。
 
 ### C4060 (空 switch)
 
@@ -251,7 +251,7 @@ default: break;  // ← 追加
 
 ### C4819 (CP932 で表示できない文字)
 
-エンコーディング統一後は基本的に発生しないはず。出たら無 BOM のファイルが混入した可能性が高いので [.editorconfig](.editorconfig) の効きを確認 + 上記復旧手順を実施。
+現行方針ではBOMは不要。発生時は対象ファイルのUTF-8/LFと`/source-charset:utf-8`の適用を確認する。
 
 ---
 

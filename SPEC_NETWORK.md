@@ -1,4 +1,4 @@
-﻿# SPEC_NETWORK.md — LAN 対戦システム仕様書
+# SPEC_NETWORK.md — LAN 対戦システム仕様書
 
 **プロジェクト**: TwistTimeStopper
 **作成日**: 2026-06-24

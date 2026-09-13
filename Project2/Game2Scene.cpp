@@ -1,4 +1,4 @@
-﻿//δ-3a: WinSock 2.2 アップグレード。winsock2.h は必ず Windows.h より前にインクルードする
+//δ-3a: WinSock 2.2 アップグレード。winsock2.h は必ず Windows.h より前にインクルードする
 //(GameMain.h → Windows.h と winsock.h の二重定義衝突を回避するため、最上段で先行 include)
 #include <winsock2.h>
 #include "GameMain.h"

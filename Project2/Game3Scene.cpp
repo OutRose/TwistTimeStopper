@@ -1,4 +1,4 @@
-﻿#include "GameMain.h"
+#include "GameMain.h"
 #include "GameSceneMain.h"
 #include "Game3Scene.h"
 

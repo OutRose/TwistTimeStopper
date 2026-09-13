@@ -1,4 +1,4 @@
-﻿#ifndef GAMESCENE1_H_
+#ifndef GAMESCENE1_H_
 #define GAMESCENE1_H_
 // GameScene.cppファイル内の関数のうち、他のファイルから呼び出される関数のプロトタイプ宣言を記述する
 

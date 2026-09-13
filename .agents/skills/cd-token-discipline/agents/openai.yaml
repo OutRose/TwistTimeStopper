@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex Token Discipline"
+  short_description: "Codexのusageを実測し、品質を保って文脈とコストを最適化"
+  default_prompt: "$cd-token-discipline でこの作業のusageを測定し、品質を保つ最適化案を示してください。"
+policy:
+  allow_implicit_invocation: true

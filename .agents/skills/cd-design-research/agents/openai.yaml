@@ -1,0 +1,6 @@
+interface:
+  display_name: "Codex Design Research"
+  short_description: "Codex仕様を一次資料で検証し、再利用可能な事実として整理"
+  default_prompt: "$cd-design-research でCodexの現行仕様を一次資料から検証し、根拠付きで整理してください。"
+policy:
+  allow_implicit_invocation: false

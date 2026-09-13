@@ -1,4 +1,4 @@
-﻿#ifndef GAMESTATUS_H_
+#ifndef GAMESTATUS_H_
 #define GAMESTATUS_H_
 //ゲームの設定情報など
 

@@ -1,10 +1,17 @@
-﻿# Changelog
+# Changelog
 
 本プロジェクトの主な変更履歴。書式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) を踏襲。バージョン番号はフェーズ完了でマイナーを 1 上げ、フェーズ内プロセス完了で 3 桁目を 1 上げる独自規則。
 
 開発履歴・設計判断の詳細は [CLAUDE.md](CLAUDE.md) を参照。
 
 ---
+
+## [Unreleased]
+
+### Changed
+
+- コード・文書・プロジェクト設定をBOMなしUTF-8/LFへ統一し、全構成のC++ソース読取文字セットをUTF-8に固定。
+- 共通Orchestrator Rev2の配布資産を追加。
 
 ## [0.10.0] - 2026-06-25 — フェーズ δ 完了
 

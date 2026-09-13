@@ -1,7 +1,10 @@
-﻿#pragma once
+#pragma once
 
 //ゲームの初期化
+#pragma warning(push)
+#pragma warning(disable : 4010 4828) // 外部 DxLib ヘッダーの CP932 コメントに起因する警告を局所化
 #include "DxLib.h"
+#pragma warning(pop)
 #include "GameStatus.h"
 
 //MyOutputDebugString 用 (Debug ビルド時の OutputDebugString ラッパ)

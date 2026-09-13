@@ -1,0 +1,60 @@
+{
+  "files": [
+    {
+      "path": ".agents/skills/cd-design-research/SKILL.md",
+      "sha256": "67975965370b0fc2ce193b1eb8ae8c998ada74b2099db331c53045db5d5f7d26"
+    },
+    {
+      "path": ".agents/skills/cd-design-research/agents/openai.yaml",
+      "sha256": "63e5145586cb49749f147638ff1e67437f0b3b1bb96788043ac7861b3d7bebb5"
+    },
+    {
+      "path": ".agents/skills/cd-design-research/references/fact-schema.md",
+      "sha256": "bf4c1bb2728a13239b5d4df908ac2ef96747a6ca45bb286c3201f63c1b9e3e62"
+    },
+    {
+      "path": ".agents/skills/cd-design-research/references/nonreasoning-template.md",
+      "sha256": "1da65a87f1840df0f49d3d387743b87f14d87e2939aa5af34f5deb61d4bb938f"
+    },
+    {
+      "path": ".agents/skills/cd-design-research/references/source-policy.md",
+      "sha256": "44ba7ee5df28ddf66ab7125fab03cc9cdb8c75a6fb3c753d737211f2fe2b6c1c"
+    },
+    {
+      "path": ".agents/skills/cd-token-discipline/SKILL.md",
+      "sha256": "9b09c6077a0cadd495ddb77cc6f8d79aecf9f77568ec40e5f1004b8046f1ed89"
+    },
+    {
+      "path": ".agents/skills/cd-token-discipline/agents/openai.yaml",
+      "sha256": "c0c622b22c847eb355e74041a2d8b55f368bed15dd7bf17895eb0d3b9101c402"
+    },
+    {
+      "path": ".agents/skills/cd-token-discipline/config/astra-medium.toml",
+      "sha256": "0fde794f831b49a6eccc7c57f78135737f034e133b109557b2ee55af648c63d9"
+    },
+    {
+      "path": ".agents/skills/cd-token-discipline/references/cache-model-policy.md",
+      "sha256": "6c1ad92b303ee70e1d7f9e9c64810de65bbded8aed3b201f9ed2f02eadf2dac8"
+    },
+    {
+      "path": ".agents/skills/cd-token-discipline/references/delegation.md",
+      "sha256": "d9848f01ac36e896fb1a859725aafec6031c56e7cfbff35e35f714c4cc540039"
+    },
+    {
+      "path": ".agents/skills/cd-token-discipline/references/measurement.md",
+      "sha256": "c038ed2f16142efa6625374434ac93e0fa3e535915472e8804e6bfdc9159488e"
+    },
+    {
+      "path": ".agents/skills/cd-token-discipline/scripts/measure_static_context.py",
+      "sha256": "94de3844b087ddae245482406d85795b4a1064e23dc07c7d9c616ffd20b086ff"
+    },
+    {
+      "path": ".cursor/rules/cd-orchestrator-codex-only.mdc",
+      "sha256": "9e497d8a91b8b025d8ea2dd4430d0a78e3ab2d2293476684ca9adf9bb24b7c2c"
+    }
+  ],
+  "product": "cd-orchestrator-common-skills",
+  "repo_root": "D:\\Repositories\\TwistTimeStopper",
+  "schema_version": 1,
+  "source_hash": "2c8b72349c7799d4337367ddefe329d5d3311814dfa90a8d6036334e85bbf655"
+}

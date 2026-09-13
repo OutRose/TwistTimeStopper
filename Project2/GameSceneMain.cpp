@@ -1,4 +1,4 @@
-﻿#include "GameSceneMain.h"
+#include "GameSceneMain.h"
 #include <assert.h>		//changeScene 範囲外チェックのアサート用 (Debug ビルドでのみ発火)
 #include <math.h>		//timerCalcScore で fabsf を使用 (δ-1 新スコア式の誤差絶対値)
 
