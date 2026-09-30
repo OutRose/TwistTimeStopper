@@ -94,7 +94,8 @@ TwistTimeStopper/
 │   ├── Game3Scene.cpp / .h    練習モード
 │   └── Game4Scene.cpp / .h    新規シーン用の空雛形
 ├── Project2.sln               Visual Studio ソリューション
-├── CLAUDE.md                  開発者向け詳細ドキュメント
+├── CLAUDE.md                  開発作業の入口
+├── PROJECT_GUIDE.md           詳細規約・設計判断・整理履歴
 ├── SPEC_NETWORK.md            ネットワーク仕様 (将来拡張用)
 ├── LICENSE                    MIT ライセンス
 └── README.md                  本ファイル
@@ -113,13 +114,11 @@ TwistTimeStopper/
 - LAN 対戦 (Game2) — 双方向スコア交換 + 勝敗判定
 - 正規化スコアシステム — 目標時間によらず満点 100 固定、ピッタリ達成時の PERFECT! 演出
 
-### 既知の制約・未完成
+### 既知の制約
 
-- **LAN 対戦の同期通信凍結**: 受信側 (Defender) は接続待ち中ゲームループが停止する。タスクマネージャから強制終了する必要あり。フェーズ δ-3 で非同期化予定
-- **エラー画面・タイムアウト未実装**: 通信失敗時はログ出力のみ。ユーザー通知の UI は フェーズ δ-3 で対応予定
-- **接続先固定**: 現状 `localhost` ハードコード。任意 IP 指定はフェーズ δ-3 以降
+- **接続先固定**: LAN 対戦の接続先は `localhost`。任意 IP の入力には未対応。
 
-開発履歴・設計判断の詳細は [CLAUDE.md](CLAUDE.md) を、ネットワーク部の将来仕様は [SPEC_NETWORK.md](SPEC_NETWORK.md) を参照。
+開発履歴・設計判断の詳細は [PROJECT_GUIDE.md](PROJECT_GUIDE.md) を、ネットワーク部の設計資料は [SPEC_NETWORK.md](SPEC_NETWORK.md) を参照。
 
 ## ライセンス
 

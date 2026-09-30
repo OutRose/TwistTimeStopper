@@ -174,9 +174,9 @@ Input = i;                                        // 現状保持
 
 ---
 
-## ネットワーク現状 (Game2Scene の netBattle)
+## ネットワーク実装の経緯 (Game2Scene)
 
-**γ-2 完成 (2026-06-24)**。動く LAN 対戦の最小要件を実装。現状の構造の要点:
+**γ-2 完成 (2026-06-24)**。動く LAN 対戦の最小要件を実装。当時の構造の要点:
 
 - **プロトコル**: TCP (`SOCK_STREAM`, `IPPROTO_TCP`)、ポート **3500**、接続先 `"localhost"` ハードコード
 - **データ**: スコア (float) を `snprintf("%f", ...)` で文字列化して双方向交換 (Challenger → Defender → Challenger の順)
@@ -194,8 +194,8 @@ Input = i;                                        // 現状保持
 - ✅ `WSAStartup`/`WSACleanup` 非対称 → init/release ペアリング
 - ✅ SIDE_SELECT UI 未実装 → MenuScene 流選択肢描画追加 (上下キー + Z 決定 + X 戻り)
 
-**γ-2 仕様化された制約 (将来課題)**:
-- ⚠️ 同期 `accept`/`recv` によるフリーズ: Defender 側で N キー押下後、Challenger 起動まで**ゲームループ凍結** (ESC 反応不能、Task Manager 強制終了で脱出)。非ブロッキング化 (`ioctlsocket FIONBIO` + `select` または別スレッド) は **フェーズ δ** 候補
+**γ-2 時点の制約 (δ-3b で解消済み)**:
+- 同期 `accept`/`recv` により、Defender 側は Challenger 起動までゲームループが停止していた。δ-3b で非同期化し、エラー画面とタイムアウトを追加した (詳細は [CHANGELOG.md](CHANGELOG.md) の 0.10.0)。
 
 **γ-3 完成 (2026-06-24)**:
 - ✅ 全 WinSock 関数の戻り値検査 (`socket`/`bind`/`listen`/`connect`/`accept`/`send`/`recv` + `gethostname`/`gethostbyname`) のインライン `if` 検査追加、エラー時 `MyOutputDebugString(_T("...failed (err=%d)"), WSAGetLastError())` ログ + LIFO 順 `closesocket` + `return -1` で統一
@@ -260,7 +260,7 @@ default: break;  // ← 追加
 完成させるかどうかをカテゴリ別に明示:
 
 **完成済み (γ-2, 2026-06-24)**:
-- `netBattle` のネットワーク同期 (Game2Scene.cpp) — 双方向交換、致命バグ修正、リソース管理整理済。[ネットワーク現状](#ネットワーク現状-game2scene-の-netbattle) 参照
+- γ-2 時点の同期 `netBattle` は双方向交換と致命バグ修正を完了し、δ-3b で非同期処理に置換済み。[ネットワーク実装の経緯](#ネットワーク実装の経緯-game2scene) 参照
 - `SIDE_SELECT` メニュー UI (`renderGame2Scene` 内に MenuScene 流選択肢描画、X キーでメニュー戻り)
 
 **完成済み (γ-1, 2026-06-24)**:

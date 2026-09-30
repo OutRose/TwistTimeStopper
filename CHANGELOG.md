@@ -2,7 +2,7 @@
 
 本プロジェクトの主な変更履歴。書式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) を踏襲。バージョン番号はフェーズ完了でマイナーを 1 上げ、フェーズ内プロセス完了で 3 桁目を 1 上げる独自規則。
 
-開発履歴・設計判断の詳細は [CLAUDE.md](CLAUDE.md) を参照。
+開発履歴・設計判断の詳細は [PROJECT_GUIDE.md](PROJECT_GUIDE.md) を参照。
 
 ---
 
@@ -10,6 +10,7 @@
 
 ### Changed
 
+- `AGENTS.md` を入口リンクに縮約し、`CURRENT_STATUS.md` を現行フェーズと残課題に更新、README の古い記述と詳細規約への参照先を修正。
 - コード・文書・プロジェクト設定をBOMなしUTF-8/LFへ統一し、全構成のC++ソース読取文字セットをUTF-8に固定。
 - 共通Orchestrator Rev2の配布資産を追加。
 
