@@ -322,3 +322,35 @@ $Command = @($args)   # ハイフン引数・引用文字列とも文字どお�
 if ($Command.Count -eq 0) { Write-Host 'エラー: コマンドを指定してください'; exit 1 }
 & $Command[0] @($Command | Select-Object -Skip 1)
 ```
+
+### 表示・出力用のパス表記を内部の索引キーに流用するな — 異なる実体が同じ表記へ潰れる
+
+- **規則**: 監査出力や互換のために短縮したパス表記 (親ディレクトリ名 + ファイル名、basename 等) は、別の実体と衝突し得る。それを dict のキーや照合キーに流用すると、後から登録した実体が前の実体を黙って上書きし、前者に対する検査 (欠損・期限・ハッシュ) が後者の値で通ってしまう。内部の索引キーには解決済み絶対パスや内容ハッシュなど一意な識別子を使い、表示用の表記は出力欄にだけ残す。テストは「表記が同じで中身が違う 2 実体」を並べ、索引の件数と、前者だけが持つ欠陥が検出されることを確認する。
+- **出典**: Racing-Predictor2 PRE-04 レビュー (commit 8b048c1、racing_predictor/jvlink.py)。過去走の基底 `.day-sources/<id>/option1/manifest.json` と差分 `shared/option1/manifest.json` が同じ `option1/manifest.json` になり、基底の提供元時刻不明が差分の証拠で隠れた
+
+❌ **初回実装にありがちなパターン** — 出力用の短縮表記を索引キーにする:
+
+```python
+def _canonical_provenance_path(path: Path) -> str:
+    return path.relative_to(path.parent.parent).as_posix()  # 監査出力用の短縮表記
+
+evidence_by_path = {
+    _canonical_provenance_path(path): evidence  # 基底と差分が同じキーになり後勝ち
+    for path, evidence in zip(manifests, evidences)
+}
+```
+
+✅ **レビュー後の修正パターン** — 索引キーは一意な識別子にし、表示用表記は出力欄に残す:
+
+```python
+def _source_evidence_key(manifest: str | Path) -> str:
+    """時刻証拠の内部索引key。表示用の相対表記は基底と差分で衝突するため使わない。"""
+    return str(Path(manifest).resolve())
+
+# テスト側 (抜粋): 表記が同じ 2 実体で、索引件数と前者の欠陥検出を確認する
+base = write_manifest(root / "source" / "option1", source_update_id=None)
+delta = write_manifest(root / "batch" / "option1", source_update_id="20260915085900")
+evidence_map = _source_evidence_map((base, delta), evidence)
+self.assertEqual(len(evidence_map), 2)
+self.assertIn("SOURCE_TIME_UNKNOWN", _strict_time_blockers((base, delta), cutoff, source_evidence=evidence_map))
+```
